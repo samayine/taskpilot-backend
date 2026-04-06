@@ -1,5 +1,5 @@
-import { Controller, Get } from '@nestjs/common';
-import { AppService } from './app.service';
+import { Controller, Get } from "@nestjs/common";
+import { AppService } from "./app.service";
 
 @Controller()
 export class AppController {
@@ -10,9 +10,9 @@ export class AppController {
     return this.appService.getHello();
   }
 
-  @Get('health')
+  @Get("health")
   async health(): Promise<{ status: string; database: string }> {
     await this.appService.checkDatabase();
-    return { status: 'ok', database: 'connected' };
+    return { status: "ok", database: "connected" };
   }
 }

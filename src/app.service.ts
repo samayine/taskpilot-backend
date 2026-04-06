@@ -1,12 +1,12 @@
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from './prisma/prisma.service';
+import { Injectable } from "@nestjs/common";
+import { PrismaService } from "./prisma/prisma.service";
 
 @Injectable()
 export class AppService {
   constructor(private readonly prisma: PrismaService) {}
 
   getHello(): string {
-    return 'Hello World!';
+    return "Hello World!";
   }
 
   /** Runs a trivial query so we know Postgres accepts connections. */
