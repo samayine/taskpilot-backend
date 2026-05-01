@@ -8,7 +8,8 @@ import { PrismaService } from "src/prisma/prisma.service";
 import { CreateTaskDto } from "./dto/create-task.dto";
 import { UpdateTaskStatusDto } from "./dto/update-task-status.dto";
 import { ReviewTaskDto, ReviewDecision } from "./dto/review-task.dto";
-import { Role, TaskStatus } from "@prisma/client";
+import { NotificationsService } from "../notifications/notifications.service";
+import { NotificationType, Role, TaskStatus } from "@prisma/client";
 
 /**
  * Allowed status transitions — the strict task lifecycle.
@@ -31,7 +32,10 @@ const EMPLOYEE_TRANSITIONS: Record<TaskStatus, TaskStatus | null> = {
 
 @Injectable()
 export class TasksService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   // ──────────────────────────────────────────────
   // Team Lead: Create & assign a task
@@ -77,7 +81,7 @@ export class TasksService {
     }
 
     // 3. Create the task
-    return this.prisma.task.create({
+    const task = await this.prisma.task.create({
       data: {
         title: dto.title,
         description: dto.description,
@@ -89,9 +93,20 @@ export class TasksService {
       },
       include: {
         assignee: { select: { id: true, fullName: true, email: true } },
+        creator: { select: { id: true, fullName: true } },
         team: { select: { id: true, name: true } },
       },
     });
+
+    // 4. Notify the assignee
+    await this.notifications.notify(
+      dto.assigneeId,
+      NotificationType.TASK_ASSIGNED,
+      `You have been assigned a new task: "${task.title}" in team ${task.team.name}`,
+      task.id,
+    );
+
+    return task;
   }
 
   // ──────────────────────────────────────────────
@@ -169,13 +184,35 @@ export class TasksService {
       );
     }
 
-    return this.prisma.task.update({
+    const updatedTask = await this.prisma.task.update({
       where: { id: taskId },
       data: { status: dto.status },
       include: {
-        team: { select: { id: true, name: true } },
+        team: { select: { id: true, name: true, teamLeadId: true } },
       },
     });
+
+    // Notify the team lead when employee submits
+    if (dto.status === TaskStatus.SUBMITTED) {
+      await this.notifications.notify(
+        updatedTask.team.teamLeadId,
+        NotificationType.TASK_SUBMITTED,
+        `Task "${updatedTask.title}" has been submitted for review`,
+        taskId,
+      );
+    }
+
+    // Notify team lead when employee starts a task
+    if (dto.status === TaskStatus.IN_PROGRESS && task.status === TaskStatus.PENDING) {
+      await this.notifications.notify(
+        updatedTask.team.teamLeadId,
+        NotificationType.TASK_STARTED,
+        `Task "${updatedTask.title}" has been started`,
+        taskId,
+      );
+    }
+
+    return updatedTask;
   }
 
   // ──────────────────────────────────────────────
@@ -203,7 +240,7 @@ export class TasksService {
     // or in REVIEW status for team lead to approve/reject
     if (task.status === TaskStatus.SUBMITTED) {
       // Move to REVIEW first
-      return this.prisma.task.update({
+      const updated = await this.prisma.task.update({
         where: { id: taskId },
         data: { status: TaskStatus.REVIEW },
         include: {
@@ -211,6 +248,16 @@ export class TasksService {
           team: { select: { id: true, name: true } },
         },
       });
+
+      // Notify the employee that their task is being reviewed
+      await this.notifications.notify(
+        task.assigneeId,
+        NotificationType.TASK_IN_REVIEW,
+        `Your task "${task.title}" is now being reviewed`,
+        taskId,
+      );
+
+      return updated;
     }
 
     if (task.status !== TaskStatus.REVIEW) {
@@ -219,13 +266,12 @@ export class TasksService {
       );
     }
 
-    // Apply the decision
     const newStatus =
       dto.decision === ReviewDecision.APPROVE
         ? TaskStatus.COMPLETED
         : TaskStatus.REJECTED;
 
-    return this.prisma.task.update({
+    const updated = await this.prisma.task.update({
       where: { id: taskId },
       data: { status: newStatus },
       include: {
@@ -233,6 +279,21 @@ export class TasksService {
         team: { select: { id: true, name: true } },
       },
     });
+
+    // Notify the employee of the decision
+    const notifType =
+      dto.decision === ReviewDecision.APPROVE
+        ? NotificationType.TASK_APPROVED
+        : NotificationType.TASK_REJECTED;
+
+    const message =
+      dto.decision === ReviewDecision.APPROVE
+        ? `Your task "${task.title}" has been approved! 🎉`
+        : `Your task "${task.title}" has been rejected. Please rework and resubmit.`;
+
+    await this.notifications.notify(task.assigneeId, notifType, message, taskId);
+
+    return updated;
   }
 
   // ──────────────────────────────────────────────
