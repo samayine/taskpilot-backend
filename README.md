@@ -1,98 +1,234 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# 🚀 TaskPilot — Backend API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+> Company-level workflow management system with role-based access control, task lifecycle management, real-time notifications, and full audit trail.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## 🏗️ Architecture
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
-
-```bash
-$ npm install
+```
+NestJS 11  →  Prisma 7 ORM  →  PostgreSQL (Neon.tech)
+     ↓              ↓
+  JWT Auth     WebSocket (Socket.io)
+     ↓              ↓
+  RBAC Guards   Real-time Notifications
 ```
 
-## Compile and run the project
+### Key Design Decisions
+
+- **Multi-tenancy** — Every user, team, and task is scoped by `companyId` from the JWT. Zero cross-company data leakage.
+- **Strict task lifecycle** — Tasks follow a state machine (`PENDING → IN_PROGRESS → SUBMITTED → REVIEW → COMPLETED/REJECTED`). Invalid transitions return clear errors.
+- **Audit trail** — Every task mutation is recorded in `TaskHistory`. System-wide actions are tracked in `ActivityLog`.
+- **Consistent API** — All errors return `{ success, statusCode, message, error, timestamp }`. All list endpoints return paginated responses with `{ data, meta }`.
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Framework | NestJS 11 |
+| Language | TypeScript 5 |
+| ORM | Prisma 7 |
+| Database | PostgreSQL (Neon.tech) |
+| Auth | JWT (passport-jwt) |
+| Real-time | Socket.io + @nestjs/websockets |
+| API Docs | Swagger (`@nestjs/swagger`) |
+| Rate Limiting | @nestjs/throttler |
+| Validation | class-validator + class-transformer |
+
+---
+
+## ⚡ Quick Start
 
 ```bash
-# development
-$ npm run start
+# 1. Clone
+git clone https://github.com/samayine/taskpilot-backend.git
+cd taskpilot-backend
 
-# watch mode
-$ npm run start:dev
+# 2. Install dependencies
+npm install
 
-# production mode
-$ npm run start:prod
+# 3. Configure environment
+cp .env.example .env
+# Edit .env with your DATABASE_URL, JWT_SECRET, etc.
+
+# 4. Run migrations
+npx prisma migrate dev
+
+# 5. Start dev server
+npm run start:dev
 ```
 
-## Run tests
+The API will be available at `http://localhost:3000/api/v1`
+Swagger docs at `http://localhost:3000/api/docs`
 
-```bash
-# unit tests
-$ npm run test
+---
 
-# e2e tests
-$ npm run test:e2e
+## 👥 Role-Based Access Control
 
-# test coverage
-$ npm run test:cov
+| Role | Capabilities |
+|---|---|
+| **CEO** | Create users, manage teams, view dashboard, block/unblock users, view audit logs |
+| **Team Lead** | Create & assign tasks, review submissions (approve/reject), view team tasks |
+| **Employee** | View assigned tasks, update task status, submit work for review |
+
+---
+
+## 📋 API Endpoints
+
+### Auth (Public)
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/auth/register-company` | Register company + CEO account |
+| `POST` | `/auth/login` | Login → JWT token (rate limited: 5/min) |
+
+### CEO Only
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/users` | Create TEAM_LEAD or EMPLOYEE |
+| `GET` | `/users` | List all company users (paginated) |
+| `PATCH` | `/users/:id/block` | Block a user |
+| `PATCH` | `/users/:id/unblock` | Unblock a user |
+| `POST` | `/teams` | Create a team |
+| `GET` | `/teams` | List all company teams (paginated) |
+| `GET` | `/teams/:id` | Get team details + members |
+| `POST` | `/teams/:id/members` | Add member to team |
+| `DELETE` | `/teams/:id/members/:userId` | Remove member |
+| `GET` | `/company` | View company profile |
+| `PATCH` | `/company` | Update company details |
+| `GET` | `/company/dashboard` | Aggregated company statistics |
+| `GET` | `/activity-logs` | System-wide activity logs (paginated) |
+
+### Team Lead
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/tasks` | Create and assign a task |
+| `GET` | `/tasks/team` | View all team tasks (paginated) |
+| `PATCH` | `/tasks/:id/review` | Approve or reject a task |
+
+### Employee
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/tasks/my` | View assigned tasks (paginated) |
+| `PATCH` | `/tasks/:id/status` | Update task status (strict lifecycle) |
+
+### Shared
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/tasks/:id` | View single task (ownership-scoped) |
+| `GET` | `/tasks/:id/history` | Audit trail (CEO + Team Lead) |
+| `GET` | `/notifications` | Get notifications (paginated) |
+| `GET` | `/notifications/unread-count` | Unread count |
+| `PATCH` | `/notifications/:id/read` | Mark as read |
+| `PATCH` | `/notifications/read-all` | Mark all as read |
+
+> All endpoints are prefixed with `/api/v1`
+
+---
+
+## 📋 Task Lifecycle
+
+```
+PENDING → IN_PROGRESS → SUBMITTED → REVIEW → COMPLETED
+                                       ↓
+                                    REJECTED → IN_PROGRESS (rework)
 ```
 
-## Deployment
+Each transition triggers:
+- ✅ Status validation (state machine)
+- 🔔 Real-time WebSocket notification to the relevant user
+- 📝 TaskHistory audit record
+- 📊 ActivityLog entry
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+---
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+## 🔔 Real-Time Notifications
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+Connect via WebSocket with JWT authentication:
+
+```javascript
+import { io } from "socket.io-client";
+
+const socket = io("http://localhost:3000/notifications", {
+  auth: { token: "Bearer <jwt_token>" }
+});
+
+socket.on("notification", (data) => {
+  console.log("New notification:", data);
+});
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+---
 
-## Resources
+## 🔒 Security
 
-Check out a few resources that may come in handy when working with NestJS:
+| Feature | Implementation |
+|---|---|
+| Password hashing | bcrypt (10 salt rounds) |
+| JWT expiry | 24 hours |
+| CORS | Configurable via `CORS_ORIGIN` env |
+| Rate limiting | 60 req/min global, 5 req/min on login |
+| Input validation | Whitelist-based, strips unknown fields |
+| Company isolation | `companyId` from JWT, never from client |
+| Role enforcement | Two-guard pattern (JwtAuthGuard → RolesGuard) |
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+---
 
-## Support
+## 📁 Project Structure
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```
+src/
+├── main.ts                       # Bootstrap, CORS, Swagger, global pipes/filters
+├── app.module.ts                 # Root module
+├── common/
+│   ├── decorators/               # @Roles() decorator
+│   ├── guards/                   # RolesGuard (RBAC)
+│   ├── filters/                  # Global exception filter
+│   ├── interceptors/             # Logging interceptor
+│   ├── dto/                      # Shared DTOs (PaginationDto)
+│   └── helpers/                  # Pagination helpers
+├── prisma/                       # PrismaService (global)
+└── modules/
+    ├── auth/                     # Login, registration, JWT strategy
+    ├── users/                    # User CRUD + block/unblock
+    ├── teams/                    # Team management + members
+    ├── tasks/                    # Task lifecycle state machine
+    ├── notifications/            # WebSocket + REST notifications
+    ├── task-history/             # Internal audit trail
+    ├── activity-log/             # System-wide event tracking (@Global)
+    └── company/                  # CEO dashboard + company profile
+```
 
-## Stay in touch
+---
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+## 📊 Database Schema
 
-## License
+```
+Company  1──→ N  User
+Company  1──→ N  Team
+Team     1──→ N  Task
+Team     1──→ N  TeamMember
+User     1──→ N  Task (as creator)
+User     1──→ N  Task (as assignee)
+Task     1──→ N  TaskHistory
+Task     1──→ N  Notification
+Company  1──→ N  ActivityLog
+```
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+---
+
+## 🧪 Environment Variables
+
+```env
+DATABASE_URL="postgresql://..."
+PORT=3000
+JWT_SECRET="your-secret-key"
+CORS_ORIGIN="*"                  # Production: "https://your-frontend.com"
+```
+
+---
+
+## 📜 License
+
+This project is part of a final-year academic project.
