@@ -11,6 +11,8 @@ import { ReviewTaskDto, ReviewDecision } from "./dto/review-task.dto";
 import { NotificationsService } from "../notifications/notifications.service";
 import { TaskHistoryService } from "../task-history/task-history.service";
 import { ActivityLogService } from "../activity-log/activity-log.service";
+import { PaginationDto } from "src/common/dto/pagination.dto";
+import { paginateArgs, paginate } from "src/common/helpers/pagination.helper";
 import { NotificationType, Role, TaskAction, TaskStatus } from "@prisma/client";
 
 /**
@@ -136,7 +138,7 @@ export class TasksService {
   // Team Lead: View all tasks for their team
   // ──────────────────────────────────────────────
 
-  async findTeamTasks(userId: string, companyId: string) {
+  async findTeamTasks(userId: string, companyId: string, pagination: PaginationDto) {
     // Find all teams this user leads
     const teams = await this.prisma.team.findMany({
       where: { teamLeadId: userId, companyId },
@@ -144,30 +146,45 @@ export class TasksService {
     });
 
     const teamIds = teams.map((t) => t.id);
+    const where = { teamId: { in: teamIds } };
 
-    return this.prisma.task.findMany({
-      where: { teamId: { in: teamIds } },
-      include: {
-        assignee: { select: { id: true, fullName: true, email: true } },
-        team: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    const [data, total] = await Promise.all([
+      this.prisma.task.findMany({
+        where,
+        include: {
+          assignee: { select: { id: true, fullName: true, email: true } },
+          team: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        ...paginateArgs(pagination),
+      }),
+      this.prisma.task.count({ where }),
+    ]);
+
+    return paginate(data, total, pagination);
   }
 
   // ──────────────────────────────────────────────
   // Employee: View my assigned tasks
   // ──────────────────────────────────────────────
 
-  async findMyTasks(userId: string) {
-    return this.prisma.task.findMany({
-      where: { assigneeId: userId },
-      include: {
-        team: { select: { id: true, name: true } },
-        creator: { select: { id: true, fullName: true } },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+  async findMyTasks(userId: string, pagination: PaginationDto) {
+    const where = { assigneeId: userId };
+
+    const [data, total] = await Promise.all([
+      this.prisma.task.findMany({
+        where,
+        include: {
+          team: { select: { id: true, name: true } },
+          creator: { select: { id: true, fullName: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        ...paginateArgs(pagination),
+      }),
+      this.prisma.task.count({ where }),
+    ]);
+
+    return paginate(data, total, pagination);
   }
 
   // ──────────────────────────────────────────────

@@ -3,12 +3,14 @@ import {
   Get,
   Param,
   Patch,
+  Query,
   Request,
   UseGuards,
 } from "@nestjs/common";
 import { NotificationsService } from "./notifications.service";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
+import { PaginationDto } from "src/common/dto/pagination.dto";
 
 @ApiTags("Notifications")
 @ApiBearerAuth("JWT")
@@ -19,8 +21,8 @@ export class NotificationsController {
 
   /** Get all notifications for the current user. */
   @Get()
-  findAll(@Request() req) {
-    return this.notificationsService.findAllForUser(req.user.userId);
+  findAll(@Query() pagination: PaginationDto, @Request() req) {
+    return this.notificationsService.findAllForUser(req.user.userId, pagination);
   }
 
   /** Get unread notification count. */

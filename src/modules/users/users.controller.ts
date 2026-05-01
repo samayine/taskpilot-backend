@@ -1,15 +1,27 @@
-import { Body, Controller, Post, Request, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Request,
+  UseGuards,
+} from "@nestjs/common";
 import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
 import { UsersService } from "./users.service";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { RolesGuard } from "src/common/guards/roles.guard";
 import { Roles } from "src/common/decorators/roles.decorator";
+import { PaginationDto } from "src/common/dto/pagination.dto";
 import { Role } from "@prisma/client";
 
 @ApiTags("Users")
 @ApiBearerAuth("JWT")
 @Controller("users")
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
@@ -17,10 +29,30 @@ export class UsersController {
    * CEO-only: create a new employee or team lead account.
    * The companyId is automatically taken from the authenticated CEO's JWT.
    */
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.CEO)
   @Post()
   createUser(@Body() createUserDto: CreateUserDto, @Request() req) {
     return this.usersService.createUser(createUserDto, req.user.companyId);
+  }
+
+  /** CEO: list all users in the company (paginated). */
+  @Roles(Role.CEO)
+  @Get()
+  findAll(@Query() pagination: PaginationDto, @Request() req) {
+    return this.usersService.findAllByCompany(req.user.companyId, pagination);
+  }
+
+  /** CEO: block a user (prevents login). */
+  @Roles(Role.CEO)
+  @Patch(":id/block")
+  blockUser(@Param("id") userId: string, @Request() req) {
+    return this.usersService.blockUser(userId, req.user.companyId);
+  }
+
+  /** CEO: unblock a user. */
+  @Roles(Role.CEO)
+  @Patch(":id/unblock")
+  unblockUser(@Param("id") userId: string, @Request() req) {
+    return this.usersService.unblockUser(userId, req.user.companyId);
   }
 }

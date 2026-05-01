@@ -2,6 +2,8 @@ import { Injectable } from "@nestjs/common";
 import { PrismaService } from "src/prisma/prisma.service";
 import { NotificationsGateway } from "./notifications.gateway";
 import { NotificationType } from "@prisma/client";
+import { PaginationDto } from "src/common/dto/pagination.dto";
+import { paginateArgs, paginate } from "src/common/helpers/pagination.helper";
 
 @Injectable()
 export class NotificationsService {
@@ -37,12 +39,19 @@ export class NotificationsService {
   /**
    * Get all notifications for a user (newest first).
    */
-  async findAllForUser(userId: string) {
-    return this.prisma.notification.findMany({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    });
+  async findAllForUser(userId: string, pagination: PaginationDto) {
+    const where = { userId };
+
+    const [data, total] = await Promise.all([
+      this.prisma.notification.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        ...paginateArgs(pagination),
+      }),
+      this.prisma.notification.count({ where }),
+    ]);
+
+    return paginate(data, total, pagination);
   }
 
   /**

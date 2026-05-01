@@ -1,5 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "src/prisma/prisma.service";
+import { PaginationDto } from "src/common/dto/pagination.dto";
+import { paginateArgs, paginate } from "src/common/helpers/pagination.helper";
 
 /**
  * Reusable service for logging system-wide actions.
@@ -42,14 +44,20 @@ export class ActivityLogService {
   /**
    * Get activity logs for a company (CEO dashboard).
    */
-  async findByCompany(companyId: string, take = 50) {
-    return this.prisma.activityLog.findMany({
-      where: { companyId },
-      include: {
-        user: { select: { id: true, fullName: true, role: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      take,
-    });
+  async findByCompany(companyId: string, pagination: PaginationDto) {
+    const where = { companyId };
+    const [data, total] = await Promise.all([
+      this.prisma.activityLog.findMany({
+        where,
+        include: {
+          user: { select: { id: true, fullName: true, role: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        ...paginateArgs(pagination),
+      }),
+      this.prisma.activityLog.count({ where }),
+    ]);
+
+    return paginate(data, total, pagination);
   }
 }

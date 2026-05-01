@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Request,
   UseGuards,
 } from "@nestjs/common";
@@ -17,6 +18,7 @@ import { RolesGuard } from "src/common/guards/roles.guard";
 import { Roles } from "src/common/decorators/roles.decorator";
 import { TaskHistoryService } from "../task-history/task-history.service";
 import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
+import { PaginationDto } from "src/common/dto/pagination.dto";
 import { Role } from "@prisma/client";
 
 @ApiTags("Tasks")
@@ -47,10 +49,11 @@ export class TasksController {
   /** Team Lead views all tasks across their teams. */
   @Roles(Role.TEAM_LEAD)
   @Get("team")
-  findTeamTasks(@Request() req) {
+  findTeamTasks(@Query() pagination: PaginationDto, @Request() req) {
     return this.tasksService.findTeamTasks(
       req.user.userId,
       req.user.companyId,
+      pagination,
     );
   }
 
@@ -72,8 +75,8 @@ export class TasksController {
   /** Employee views all tasks assigned to them. */
   @Roles(Role.EMPLOYEE)
   @Get("my")
-  findMyTasks(@Request() req) {
-    return this.tasksService.findMyTasks(req.user.userId);
+  findMyTasks(@Query() pagination: PaginationDto, @Request() req) {
+    return this.tasksService.findMyTasks(req.user.userId, pagination);
   }
 
   /** Employee updates their task status (strict lifecycle). */

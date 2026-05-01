@@ -9,6 +9,8 @@ import { CreateTeamDto } from "./dto/create-team.dto";
 import { AddTeamMemberDto } from "./dto/add-team-member.dto";
 import { Role } from "@prisma/client";
 import { ActivityLogService } from "../activity-log/activity-log.service";
+import { PaginationDto } from "src/common/dto/pagination.dto";
+import { paginateArgs, paginate } from "src/common/helpers/pagination.helper";
 
 @Injectable()
 export class TeamsService {
@@ -72,15 +74,23 @@ export class TeamsService {
   /**
    * Get all teams for a company.
    */
-  async findAllByCompany(companyId: string) {
-    return this.prisma.team.findMany({
-      where: { companyId },
-      include: {
-        teamLead: { select: { id: true, fullName: true, email: true, role: true } },
-        _count: { select: { members: true } },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+  async findAllByCompany(companyId: string, pagination: PaginationDto) {
+    const where = { companyId };
+
+    const [data, total] = await Promise.all([
+      this.prisma.team.findMany({
+        where,
+        include: {
+          teamLead: { select: { id: true, fullName: true, email: true, role: true } },
+          _count: { select: { members: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        ...paginateArgs(pagination),
+      }),
+      this.prisma.team.count({ where }),
+    ]);
+
+    return paginate(data, total, pagination);
   }
 
   /**

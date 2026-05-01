@@ -5,11 +5,13 @@ import {
   Get,
   Param,
   Post,
+  Query,
   Request,
   UseGuards,
 } from "@nestjs/common";
 import { TeamsService } from "./teams.service";
 import { CreateTeamDto } from "./dto/create-team.dto";
+import { PaginationDto } from "src/common/dto/pagination.dto";
 import { AddTeamMemberDto } from "./dto/add-team-member.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { RolesGuard } from "src/common/guards/roles.guard";
@@ -34,8 +36,8 @@ export class TeamsController {
   /** CEO or Team Lead can view all teams in their company. */
   @Roles(Role.CEO, Role.TEAM_LEAD)
   @Get()
-  findAll(@Request() req) {
-    return this.teamsService.findAllByCompany(req.user.companyId);
+  findAll(@Query() pagination: PaginationDto, @Request() req) {
+    return this.teamsService.findAllByCompany(req.user.companyId, pagination);
   }
 
   /** CEO or Team Lead can view a single team. */
