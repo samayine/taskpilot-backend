@@ -15,7 +15,7 @@ export class UsersService {
   async createUser(
     createUserDto: CreateUserDto,
     companyId: string,
-  ): Promise<User> {
+  ): Promise<Omit<User, 'password'>> {
     const existingEmail = await this.prismaService.user.findUnique({
       where: { email: createUserDto.email },
     });
@@ -26,13 +26,16 @@ export class UsersService {
 
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
 
-    return this.prismaService.user.create({
+    const user = await this.prismaService.user.create({
       data: {
         ...createUserDto,
         password: hashedPassword,
         companyId: companyId,
       },
     });
+
+    const { password, ...safeUser } = user;
+    return safeUser;
   }
 
   /** Use for auth: unknown email must not throw (same error as bad password). */

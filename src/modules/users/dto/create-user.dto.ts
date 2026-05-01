@@ -1,11 +1,11 @@
 import { Role } from "@prisma/client";
 import {
   IsEmail,
-  IsEnum,
+  IsIn,
   IsNotEmpty,
-  IsOptional,
   IsString,
   MaxLength,
+  MinLength,
 } from "class-validator";
 
 export class CreateUserDto {
@@ -20,8 +20,11 @@ export class CreateUserDto {
 
   @IsString()
   @IsNotEmpty()
+  @MinLength(6, { message: "Password must be at least 6 characters long" })
   password: string;
 
-  @IsEnum(Role, { message: "valid role is required" })
+  @IsIn([Role.TEAM_LEAD, Role.EMPLOYEE], {
+    message: "Role must be either TEAM_LEAD or EMPLOYEE",
+  })
   role: Role;
 }

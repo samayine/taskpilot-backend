@@ -44,8 +44,8 @@ export class AuthService {
         },
       });
 
-      // optionally return a jwt right away, or just raw data
-      return { company, ceo };
+      const { password, ...safeCeo } = ceo;
+      return { company, ceo: safeCeo };
     });
   }
 
