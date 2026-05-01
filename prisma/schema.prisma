@@ -18,6 +18,7 @@ model Company {
 
   users User[]
   teams Team[]
+  activityLogs ActivityLog[]
 }
 
 model User {
@@ -40,6 +41,8 @@ model User {
   notifications  Notification[]
   taskHistoryChanges TaskHistory[] @relation("TaskHistoryChanges")
   activityLogs   ActivityLog[]
+
+  @@index([companyId])
 }
 
 enum Role {
@@ -61,6 +64,9 @@ model Team {
   teamLead   User         @relation(fields: [teamLeadId], references: [id])
   members    TeamMember[]
   tasks      Task[]
+
+  @@index([companyId])
+  @@index([teamLeadId])
 }
 
 model TeamMember {
@@ -120,6 +126,10 @@ model Task {
 
   notifications Notification[]
   history       TaskHistory[]
+
+  @@index([teamId])
+  @@index([assigneeId])
+  @@index([creatorId])
 }
 
 // ──────────────────────────────────────────────
@@ -145,6 +155,8 @@ model TaskHistory {
 
   changedById String
   changedBy   User   @relation("TaskHistoryChanges", fields: [changedById], references: [id])
+
+  @@index([taskId])
 }
 
 // ──────────────────────────────────────────────
@@ -194,4 +206,8 @@ model ActivityLog {
 
   // Company scope for multi-tenancy
   companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@index([userId])
 }
