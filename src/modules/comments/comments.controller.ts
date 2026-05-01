@@ -1,0 +1,48 @@
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  Request,
+  UseGuards,
+} from "@nestjs/common";
+import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
+import { CommentsService } from "./comments.service";
+import { CreateCommentDto } from "./dto/create-comment.dto";
+import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
+import { RolesGuard } from "src/common/guards/roles.guard";
+import { Roles } from "src/common/decorators/roles.decorator";
+import { PaginationDto } from "src/common/dto/pagination.dto";
+import { Role } from "@prisma/client";
+
+@ApiTags("Comments")
+@ApiBearerAuth("JWT")
+@Controller("tasks/:taskId/comments")
+@UseGuards(JwtAuthGuard, RolesGuard)
+export class CommentsController {
+  constructor(private readonly commentsService: CommentsService) {}
+
+  /** Add a comment to a task. */
+  @Roles(Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Post()
+  create(
+    @Param("taskId") taskId: string,
+    @Body() dto: CreateCommentDto,
+    @Request() req,
+  ) {
+    return this.commentsService.create(taskId, req.user.userId, dto);
+  }
+
+  /** Get all comments on a task (paginated). */
+  @Roles(Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Get()
+  findAll(
+    @Param("taskId") taskId: string,
+    @Query() pagination: PaginationDto,
+    @Request() req,
+  ) {
+    return this.commentsService.findByTask(taskId, req.user.userId, pagination);
+  }
+}

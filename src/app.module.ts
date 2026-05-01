@@ -10,6 +10,7 @@ import { TasksModule } from "./modules/tasks/tasks.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { ActivityLogModule } from "./modules/activity-log/activity-log.module";
 import { CompanyModule } from "./modules/company/company.module";
+import { CommentsModule } from "./modules/comments/comments.module";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { APP_GUARD } from "@nestjs/core";
 
@@ -34,6 +35,7 @@ import { APP_GUARD } from "@nestjs/core";
     TeamsModule,
     TasksModule,
     NotificationsModule,
+    CommentsModule,
   ],
   controllers: [AppController],
   providers: [

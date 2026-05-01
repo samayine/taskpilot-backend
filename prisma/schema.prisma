@@ -41,6 +41,7 @@ model User {
   notifications  Notification[]
   taskHistoryChanges TaskHistory[] @relation("TaskHistoryChanges")
   activityLogs   ActivityLog[]
+  comments       Comment[]
 
   @@index([companyId])
 }
@@ -126,10 +127,29 @@ model Task {
 
   notifications Notification[]
   history       TaskHistory[]
+  comments      Comment[]
 
   @@index([teamId])
   @@index([assigneeId])
   @@index([creatorId])
+}
+
+// ──────────────────────────────────────────────
+// Task Comments
+// ──────────────────────────────────────────────
+
+model Comment {
+  id        String   @id @default(uuid())
+  content   String
+  createdAt DateTime @default(now())
+
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id])
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id])
+
+  @@index([taskId])
 }
 
 // ──────────────────────────────────────────────
