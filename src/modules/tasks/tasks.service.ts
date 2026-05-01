@@ -11,9 +11,9 @@ import { ReviewTaskDto, ReviewDecision } from "./dto/review-task.dto";
 import { NotificationsService } from "../notifications/notifications.service";
 import { TaskHistoryService } from "../task-history/task-history.service";
 import { ActivityLogService } from "../activity-log/activity-log.service";
-import { PaginationDto } from "src/common/dto/pagination.dto";
+import { TaskFilterDto } from "./dto/task-filter.dto";
 import { paginateArgs, paginate } from "src/common/helpers/pagination.helper";
-import { NotificationType, Role, TaskAction, TaskStatus } from "@prisma/client";
+import { NotificationType, Prisma, Role, TaskAction, TaskStatus } from "@prisma/client";
 
 /**
  * Allowed status transitions — the strict task lifecycle.
@@ -138,7 +138,7 @@ export class TasksService {
   // Team Lead: View all tasks for their team
   // ──────────────────────────────────────────────
 
-  async findTeamTasks(userId: string, companyId: string, pagination: PaginationDto) {
+  async findTeamTasks(userId: string, companyId: string, filters: TaskFilterDto) {
     // Find all teams this user leads
     const teams = await this.prisma.team.findMany({
       where: { teamLeadId: userId, companyId },
@@ -146,7 +146,10 @@ export class TasksService {
     });
 
     const teamIds = teams.map((t) => t.id);
-    const where = { teamId: { in: teamIds } };
+    const where: Prisma.TaskWhereInput = {
+      teamId: { in: teamIds },
+      ...this.buildTaskFilters(filters),
+    };
 
     const [data, total] = await Promise.all([
       this.prisma.task.findMany({
@@ -156,20 +159,23 @@ export class TasksService {
           team: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: "desc" },
-        ...paginateArgs(pagination),
+        ...paginateArgs(filters),
       }),
       this.prisma.task.count({ where }),
     ]);
 
-    return paginate(data, total, pagination);
+    return paginate(data, total, filters);
   }
 
   // ──────────────────────────────────────────────
   // Employee: View my assigned tasks
   // ──────────────────────────────────────────────
 
-  async findMyTasks(userId: string, pagination: PaginationDto) {
-    const where = { assigneeId: userId };
+  async findMyTasks(userId: string, filters: TaskFilterDto) {
+    const where: Prisma.TaskWhereInput = {
+      assigneeId: userId,
+      ...this.buildTaskFilters(filters),
+    };
 
     const [data, total] = await Promise.all([
       this.prisma.task.findMany({
@@ -179,12 +185,12 @@ export class TasksService {
           creator: { select: { id: true, fullName: true } },
         },
         orderBy: { createdAt: "desc" },
-        ...paginateArgs(pagination),
+        ...paginateArgs(filters),
       }),
       this.prisma.task.count({ where }),
     ]);
 
-    return paginate(data, total, pagination);
+    return paginate(data, total, filters);
   }
 
   // ──────────────────────────────────────────────
@@ -433,5 +439,27 @@ export class TasksService {
     }
 
     return task;
+  }
+
+  // ──────────────────────────────────────────────
+  // Private: Build dynamic filter conditions
+  // ──────────────────────────────────────────────
+
+  private buildTaskFilters(filters: TaskFilterDto): Prisma.TaskWhereInput {
+    const where: Prisma.TaskWhereInput = {};
+
+    if (filters.status) {
+      where.status = filters.status;
+    }
+
+    if (filters.priority) {
+      where.priority = filters.priority;
+    }
+
+    if (filters.search) {
+      where.title = { contains: filters.search, mode: "insensitive" };
+    }
+
+    return where;
   }
 }
