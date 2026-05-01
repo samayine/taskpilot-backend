@@ -33,8 +33,10 @@ model User {
   companyId String
   company   Company @relation(fields: [companyId], references: [id])
 
-  teams       Team[]
-  teamMembers TeamMember[]
+  teams         Team[]
+  teamMembers   TeamMember[]
+  createdTasks  Task[]       @relation("CreatedTasks")
+  assignedTasks Task[]       @relation("AssignedTasks")
 }
 
 enum Role {
@@ -55,6 +57,7 @@ model Team {
   teamLeadId String
   teamLead   User         @relation(fields: [teamLeadId], references: [id])
   members    TeamMember[]
+  tasks      Task[]
 }
 
 model TeamMember {
@@ -68,4 +71,47 @@ model TeamMember {
   team Team @relation(fields: [teamId], references: [id])
 
   @@unique([userId, teamId])
+}
+
+// ──────────────────────────────────────────────
+// Task Management
+// ──────────────────────────────────────────────
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  SUBMITTED
+  REVIEW
+  COMPLETED
+  REJECTED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Task {
+  id          String     @id @default(uuid())
+  title       String
+  description String?
+  status      TaskStatus @default(PENDING)
+  priority    Priority   @default(MEDIUM)
+  dueDate     DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // The team this task belongs to
+  teamId String
+  team   Team   @relation(fields: [teamId], references: [id])
+
+  // The team lead who created the task
+  creatorId String
+  creator   User   @relation("CreatedTasks", fields: [creatorId], references: [id])
+
+  // The employee assigned to this task
+  assigneeId String
+  assignee   User   @relation("AssignedTasks", fields: [assigneeId], references: [id])
 }
