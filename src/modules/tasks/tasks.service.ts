@@ -178,6 +178,7 @@ export class TasksService {
     taskId: string,
     dto: UpdateTaskStatusDto,
     userId: string,
+    companyId: string,
   ) {
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
@@ -243,6 +244,16 @@ export class TasksService {
       { status: dto.status },
     );
 
+    // Activity log
+    await this.activityLog.logAction(
+      userId,
+      companyId,
+      "TASK_STATUS_CHANGED",
+      "Task",
+      taskId,
+      { from: task.status, to: dto.status },
+    );
+
     return updatedTask;
   }
 
@@ -250,7 +261,7 @@ export class TasksService {
   // Team Lead: Review a submitted task
   // ──────────────────────────────────────────────
 
-  async reviewTask(taskId: string, dto: ReviewTaskDto, userId: string) {
+  async reviewTask(taskId: string, dto: ReviewTaskDto, userId: string, companyId: string) {
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
       include: { team: true },
@@ -295,6 +306,16 @@ export class TasksService {
         TaskAction.REVIEWED,
         { status: TaskStatus.SUBMITTED },
         { status: TaskStatus.REVIEW },
+      );
+
+      // Activity log
+      await this.activityLog.logAction(
+        userId,
+        companyId,
+        "TASK_REVIEWED",
+        "Task",
+        taskId,
+        { from: TaskStatus.SUBMITTED, to: TaskStatus.REVIEW },
       );
 
       return updated;
@@ -342,6 +363,16 @@ export class TasksService {
       { status: newStatus, decision: dto.decision },
     );
 
+    // Activity log
+    await this.activityLog.logAction(
+      userId,
+      companyId,
+      "TASK_REVIEWED",
+      "Task",
+      taskId,
+      { from: TaskStatus.REVIEW, to: newStatus, decision: dto.decision },
+    );
+
     return updated;
   }
 
@@ -349,17 +380,22 @@ export class TasksService {
   // Shared: Get a single task by ID
   // ──────────────────────────────────────────────
 
-  async findOne(taskId: string, userId: string, role: Role) {
+  async findOne(taskId: string, userId: string, role: Role, companyId: string) {
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
       include: {
         assignee: { select: { id: true, fullName: true, email: true, role: true } },
         creator: { select: { id: true, fullName: true, email: true } },
-        team: { select: { id: true, name: true } },
+        team: { select: { id: true, name: true, companyId: true } },
       },
     });
 
     if (!task) {
+      throw new NotFoundException("Task not found");
+    }
+
+    // Company isolation: prevent cross-company access
+    if ((task.team as any).companyId !== companyId) {
       throw new NotFoundException("Task not found");
     }
 

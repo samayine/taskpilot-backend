@@ -62,7 +62,7 @@ export class TasksController {
     @Body() dto: ReviewTaskDto,
     @Request() req,
   ) {
-    return this.tasksService.reviewTask(taskId, dto, req.user.userId);
+    return this.tasksService.reviewTask(taskId, dto, req.user.userId, req.user.companyId);
   }
 
   // ──────────────────────────────────────────────
@@ -84,7 +84,7 @@ export class TasksController {
     @Body() dto: UpdateTaskStatusDto,
     @Request() req,
   ) {
-    return this.tasksService.updateStatus(taskId, dto, req.user.userId);
+    return this.tasksService.updateStatus(taskId, dto, req.user.userId, req.user.companyId);
   }
 
   // ──────────────────────────────────────────────
@@ -95,7 +95,7 @@ export class TasksController {
   @Roles(Role.CEO, Role.TEAM_LEAD, Role.EMPLOYEE)
   @Get(":id")
   findOne(@Param("id") taskId: string, @Request() req) {
-    return this.tasksService.findOne(taskId, req.user.userId, req.user.role);
+    return this.tasksService.findOne(taskId, req.user.userId, req.user.role, req.user.companyId);
   }
 
   /** CEO or Team Lead can view a task's full change history. */
