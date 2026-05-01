@@ -10,6 +10,8 @@ import { TasksModule } from "./modules/tasks/tasks.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { ActivityLogModule } from "./modules/activity-log/activity-log.module";
 import { CompanyModule } from "./modules/company/company.module";
+import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
+import { APP_GUARD } from "@nestjs/core";
 
 @Module({
   imports: [
@@ -17,6 +19,13 @@ import { CompanyModule } from "./modules/company/company.module";
       isGlobal: true,
       envFilePath: ".env",
     }),
+    ThrottlerModule.forRoot([
+      {
+        name: "default",
+        ttl: 60000,  // 1 minute window
+        limit: 60,   // 60 requests per minute per IP
+      },
+    ]),
     PrismaModule,
     ActivityLogModule,
     CompanyModule,
@@ -27,7 +36,10 @@ import { CompanyModule } from "./modules/company/company.module";
     NotificationsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
 export class AppModule {}
 
