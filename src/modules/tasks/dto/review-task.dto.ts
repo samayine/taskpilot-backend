@@ -1,3 +1,4 @@
+import { ApiProperty } from "@nestjs/swagger";
 import { IsEnum, IsNotEmpty } from "class-validator";
 
 /**
@@ -9,6 +10,7 @@ export enum ReviewDecision {
 }
 
 export class ReviewTaskDto {
+  @ApiProperty({ enum: ReviewDecision, example: ReviewDecision.APPROVE })
   @IsEnum(ReviewDecision, { message: "Decision must be APPROVE or REJECT" })
   @IsNotEmpty()
   decision: ReviewDecision;

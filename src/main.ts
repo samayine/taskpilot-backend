@@ -44,6 +44,7 @@ async function bootstrap() {
     .addTag("Notifications", "Real-time notifications")
     .addTag("Company", "Company profile and CEO dashboard")
     .addTag("Activity Logs", "System-wide activity tracking")
+    .addTag("Comments", "Task collaboration comments")
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
