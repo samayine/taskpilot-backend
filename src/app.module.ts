@@ -9,6 +9,7 @@ import { TeamsModule } from "./modules/teams/teams.module";
 import { TasksModule } from "./modules/tasks/tasks.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { ActivityLogModule } from "./modules/activity-log/activity-log.module";
+import { CompanyModule } from "./modules/company/company.module";
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { ActivityLogModule } from "./modules/activity-log/activity-log.module";
     }),
     PrismaModule,
     ActivityLogModule,
+    CompanyModule,
     UsersModule,
     AuthModule,
     TeamsModule,
