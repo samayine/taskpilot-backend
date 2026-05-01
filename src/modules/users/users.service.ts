@@ -7,6 +7,7 @@ import {
 import { Role, User } from "@prisma/client";
 import { PrismaService } from "src/prisma/prisma.service";
 import { CreateUserDto } from "./dto/create-user.dto";
+import { UpdateProfileDto } from "./dto/update-profile.dto";
 import { PaginationDto } from "src/common/dto/pagination.dto";
 import { paginateArgs, paginate } from "src/common/helpers/pagination.helper";
 import * as bcrypt from "bcrypt";
@@ -118,6 +119,89 @@ export class UsersService {
     });
 
     return { message: `User ${user.fullName} has been unblocked` };
+  }
+
+  // ──────────────────────────────────────────────
+  // Self-service: Profile
+  // ──────────────────────────────────────────────
+
+  /**
+   * Any user: view their own profile.
+   */
+  async getProfile(userId: string) {
+    const user = await this.prismaService.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        isBlocked: true,
+        status: true,
+        createdAt: true,
+        company: { select: { id: true, name: true } },
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException("User not found");
+    }
+
+    return user;
+  }
+
+  /**
+   * Any user: update their own profile (name and/or password).
+   */
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const user = await this.prismaService.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException("User not found");
+    }
+
+    const data: Record<string, any> = {};
+
+    // Update name
+    if (dto.fullName) {
+      data.fullName = dto.fullName;
+    }
+
+    // Update password (requires current password)
+    if (dto.newPassword) {
+      if (!dto.currentPassword) {
+        throw new BadRequestException(
+          "Current password is required to set a new password",
+        );
+      }
+
+      const isMatch = await bcrypt.compare(dto.currentPassword, user.password);
+      if (!isMatch) {
+        throw new BadRequestException("Current password is incorrect");
+      }
+
+      data.password = await bcrypt.hash(dto.newPassword, 10);
+    }
+
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException("No fields to update");
+    }
+
+    const updated = await this.prismaService.user.update({
+      where: { id: userId },
+      data,
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+
+    return updated;
   }
 
   /** Use for auth: unknown email must not throw (same error as bad password). */

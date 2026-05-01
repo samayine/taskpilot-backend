@@ -16,6 +16,7 @@ import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { RolesGuard } from "src/common/guards/roles.guard";
 import { Roles } from "src/common/decorators/roles.decorator";
 import { PaginationDto } from "src/common/dto/pagination.dto";
+import { UpdateProfileDto } from "./dto/update-profile.dto";
 import { Role } from "@prisma/client";
 
 @ApiTags("Users")
@@ -25,9 +26,30 @@ import { Role } from "@prisma/client";
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  // ──────────────────────────────────────────────
+  // Self-service: any authenticated user
+  // ──────────────────────────────────────────────
+
+  /** Any user: view their own profile. */
+  @Roles(Role.CEO, Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Get("profile")
+  getProfile(@Request() req) {
+    return this.usersService.getProfile(req.user.userId);
+  }
+
+  /** Any user: update their name or password. */
+  @Roles(Role.CEO, Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Patch("profile")
+  updateProfile(@Body() dto: UpdateProfileDto, @Request() req) {
+    return this.usersService.updateProfile(req.user.userId, dto);
+  }
+
+  // ──────────────────────────────────────────────
+  // CEO-only: user management
+  // ──────────────────────────────────────────────
+
   /**
    * CEO-only: create a new employee or team lead account.
-   * The companyId is automatically taken from the authenticated CEO's JWT.
    */
   @Roles(Role.CEO)
   @Post()
