@@ -9,7 +9,8 @@ import { CreateTaskDto } from "./dto/create-task.dto";
 import { UpdateTaskStatusDto } from "./dto/update-task-status.dto";
 import { ReviewTaskDto, ReviewDecision } from "./dto/review-task.dto";
 import { NotificationsService } from "../notifications/notifications.service";
-import { NotificationType, Role, TaskStatus } from "@prisma/client";
+import { TaskHistoryService } from "../task-history/task-history.service";
+import { NotificationType, Role, TaskAction, TaskStatus } from "@prisma/client";
 
 /**
  * Allowed status transitions — the strict task lifecycle.
@@ -35,6 +36,7 @@ export class TasksService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly taskHistory: TaskHistoryService,
   ) {}
 
   // ──────────────────────────────────────────────
@@ -105,6 +107,15 @@ export class TasksService {
       `You have been assigned a new task: "${task.title}" in team ${task.team.name}`,
       task.id,
     );
+
+    // 5. Record history
+    await this.taskHistory.record(task.id, creatorId, TaskAction.CREATED, null, {
+      title: task.title,
+      status: task.status,
+      priority: task.priority,
+      assigneeId: dto.assigneeId,
+      teamId: dto.teamId,
+    });
 
     return task;
   }
@@ -211,6 +222,14 @@ export class TasksService {
         taskId,
       );
     }
+    // Record history for status change
+    await this.taskHistory.record(
+      taskId,
+      userId,
+      TaskAction.STATUS_CHANGED,
+      { status: task.status },
+      { status: dto.status },
+    );
 
     return updatedTask;
   }
@@ -257,6 +276,15 @@ export class TasksService {
         taskId,
       );
 
+      // Record history
+      await this.taskHistory.record(
+        taskId,
+        userId,
+        TaskAction.REVIEWED,
+        { status: TaskStatus.SUBMITTED },
+        { status: TaskStatus.REVIEW },
+      );
+
       return updated;
     }
 
@@ -292,6 +320,15 @@ export class TasksService {
         : `Your task "${task.title}" has been rejected. Please rework and resubmit.`;
 
     await this.notifications.notify(task.assigneeId, notifType, message, taskId);
+
+    // Record history
+    await this.taskHistory.record(
+      taskId,
+      userId,
+      TaskAction.REVIEWED,
+      { status: TaskStatus.REVIEW },
+      { status: newStatus, decision: dto.decision },
+    );
 
     return updated;
   }

@@ -15,12 +15,16 @@ import { ReviewTaskDto } from "./dto/review-task.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { RolesGuard } from "src/common/guards/roles.guard";
 import { Roles } from "src/common/decorators/roles.decorator";
+import { TaskHistoryService } from "../task-history/task-history.service";
 import { Role } from "@prisma/client";
 
 @Controller("tasks")
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class TasksController {
-  constructor(private readonly tasksService: TasksService) {}
+  constructor(
+    private readonly tasksService: TasksService,
+    private readonly taskHistoryService: TaskHistoryService,
+  ) {}
 
   // ──────────────────────────────────────────────
   // Team Lead endpoints
@@ -89,5 +93,12 @@ export class TasksController {
   @Get(":id")
   findOne(@Param("id") taskId: string, @Request() req) {
     return this.tasksService.findOne(taskId, req.user.userId, req.user.role);
+  }
+
+  /** CEO or Team Lead can view a task's full change history. */
+  @Roles(Role.CEO, Role.TEAM_LEAD)
+  @Get(":id/history")
+  getHistory(@Param("id") taskId: string) {
+    return this.taskHistoryService.getHistoryForTask(taskId);
   }
 }
