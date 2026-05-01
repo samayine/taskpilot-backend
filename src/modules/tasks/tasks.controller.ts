@@ -16,8 +16,11 @@ import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { RolesGuard } from "src/common/guards/roles.guard";
 import { Roles } from "src/common/decorators/roles.decorator";
 import { TaskHistoryService } from "../task-history/task-history.service";
+import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
 import { Role } from "@prisma/client";
 
+@ApiTags("Tasks")
+@ApiBearerAuth("JWT")
 @Controller("tasks")
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class TasksController {

@@ -8,7 +8,10 @@ import {
 } from "@nestjs/common";
 import { NotificationsService } from "./notifications.service";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
+import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
 
+@ApiTags("Notifications")
+@ApiBearerAuth("JWT")
 @Controller("notifications")
 @UseGuards(JwtAuthGuard)
 export class NotificationsController {

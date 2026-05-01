@@ -1,4 +1,5 @@
 import { Body, Controller, Post, Request, UseGuards } from "@nestjs/common";
+import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
 import { UsersService } from "./users.service";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
@@ -6,6 +7,8 @@ import { RolesGuard } from "src/common/guards/roles.guard";
 import { Roles } from "src/common/decorators/roles.decorator";
 import { Role } from "@prisma/client";
 
+@ApiTags("Users")
+@ApiBearerAuth("JWT")
 @Controller("users")
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}

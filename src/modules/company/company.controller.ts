@@ -11,8 +11,11 @@ import { UpdateCompanyDto } from "./dto/update-company.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { RolesGuard } from "src/common/guards/roles.guard";
 import { Roles } from "src/common/decorators/roles.decorator";
+import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
 import { Role } from "@prisma/client";
 
+@ApiTags("Company")
+@ApiBearerAuth("JWT")
 @Controller("company")
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class CompanyController {

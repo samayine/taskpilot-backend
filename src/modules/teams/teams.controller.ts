@@ -14,8 +14,11 @@ import { AddTeamMemberDto } from "./dto/add-team-member.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { RolesGuard } from "src/common/guards/roles.guard";
 import { Roles } from "src/common/decorators/roles.decorator";
+import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
 import { Role } from "@prisma/client";
 
+@ApiTags("Teams")
+@ApiBearerAuth("JWT")
 @Controller("teams")
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class TeamsController {

@@ -3,8 +3,11 @@ import { ActivityLogService } from "./activity-log.service";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { RolesGuard } from "src/common/guards/roles.guard";
 import { Roles } from "src/common/decorators/roles.decorator";
+import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
 import { Role } from "@prisma/client";
 
+@ApiTags("Activity Logs")
+@ApiBearerAuth("JWT")
 @Controller("activity-logs")
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ActivityLogController {

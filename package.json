@@ -28,6 +28,7 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/platform-socket.io": "^11.1.18",
+    "@nestjs/swagger": "^11.4.2",
     "@nestjs/websockets": "^11.1.18",
     "@prisma/client": "^7.5.0",
     "bcrypt": "^6.0.0",
