@@ -8,6 +8,7 @@ import { AuthModule } from "./modules/auth/auth.module";
 import { TeamsModule } from "./modules/teams/teams.module";
 import { TasksModule } from "./modules/tasks/tasks.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
+import { ActivityLogModule } from "./modules/activity-log/activity-log.module";
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { NotificationsModule } from "./modules/notifications/notifications.modul
       envFilePath: ".env",
     }),
     PrismaModule,
+    ActivityLogModule,
     UsersModule,
     AuthModule,
     TeamsModule,

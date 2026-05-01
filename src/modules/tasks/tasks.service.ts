@@ -10,6 +10,7 @@ import { UpdateTaskStatusDto } from "./dto/update-task-status.dto";
 import { ReviewTaskDto, ReviewDecision } from "./dto/review-task.dto";
 import { NotificationsService } from "../notifications/notifications.service";
 import { TaskHistoryService } from "../task-history/task-history.service";
+import { ActivityLogService } from "../activity-log/activity-log.service";
 import { NotificationType, Role, TaskAction, TaskStatus } from "@prisma/client";
 
 /**
@@ -37,6 +38,7 @@ export class TasksService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly taskHistory: TaskHistoryService,
+    private readonly activityLog: ActivityLogService,
   ) {}
 
   // ──────────────────────────────────────────────
@@ -116,6 +118,16 @@ export class TasksService {
       assigneeId: dto.assigneeId,
       teamId: dto.teamId,
     });
+
+    // 6. Activity log
+    await this.activityLog.logAction(
+      creatorId,
+      companyId,
+      "TASK_CREATED",
+      "Task",
+      task.id,
+      { title: task.title, assigneeId: dto.assigneeId },
+    );
 
     return task;
   }

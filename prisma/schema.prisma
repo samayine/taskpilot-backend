@@ -39,6 +39,7 @@ model User {
   assignedTasks  Task[]       @relation("AssignedTasks")
   notifications  Notification[]
   taskHistoryChanges TaskHistory[] @relation("TaskHistoryChanges")
+  activityLogs   ActivityLog[]
 }
 
 enum Role {
@@ -173,4 +174,24 @@ model Notification {
   // The task that triggered this notification (optional)
   taskId String?
   task   Task?  @relation(fields: [taskId], references: [id])
+}
+
+// ──────────────────────────────────────────────
+// Activity Log (System-wide)
+// ──────────────────────────────────────────────
+
+model ActivityLog {
+  id         String   @id @default(uuid())
+  action     String
+  entityType String
+  entityId   String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  // Who performed the action
+  userId String?
+  user   User?  @relation(fields: [userId], references: [id])
+
+  // Company scope for multi-tenancy
+  companyId String
 }

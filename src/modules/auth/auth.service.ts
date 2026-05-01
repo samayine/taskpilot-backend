@@ -10,6 +10,7 @@ import { LoginDto } from "./dto/login.dto";
 import { CreateUserDto } from "../users/dto/create-user.dto";
 import { RegisterCompanyDto } from "./dto/register-company.dto";
 import { PrismaService } from "src/prisma/prisma.service";
+import { ActivityLogService } from "../activity-log/activity-log.service";
 import { Role } from "@prisma/client";
 @Injectable()
 export class AuthService {
@@ -17,6 +18,7 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private prismaService: PrismaService,
+    private activityLog: ActivityLogService,
   ) {}
 
   async registerCompany(dto: RegisterCompanyDto) {
@@ -45,6 +47,19 @@ export class AuthService {
       });
 
       const { password, ...safeCeo } = ceo;
+
+      // Log company registration
+      await tx.activityLog.create({
+        data: {
+          userId: ceo.id,
+          companyId: company.id,
+          action: "COMPANY_REGISTERED",
+          entityType: "Company",
+          entityId: company.id,
+          metadata: { companyName: company.name },
+        },
+      });
+
       return { company, ceo: safeCeo };
     });
   }
@@ -71,6 +86,15 @@ export class AuthService {
       role: user.role,
       companyId: user.companyId,
     };
+    // Log the login (fire-and-forget, don't block response)
+    this.activityLog.logAction(
+      user.id,
+      user.companyId,
+      "USER_LOGIN",
+      "User",
+      user.id,
+      { email: user.email, role: user.role },
+    );
 
     return {
       access_token: this.jwtService.sign(payLoad),

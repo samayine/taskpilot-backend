@@ -8,10 +8,14 @@ import { PrismaService } from "src/prisma/prisma.service";
 import { CreateTeamDto } from "./dto/create-team.dto";
 import { AddTeamMemberDto } from "./dto/add-team-member.dto";
 import { Role } from "@prisma/client";
+import { ActivityLogService } from "../activity-log/activity-log.service";
 
 @Injectable()
 export class TeamsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly activityLog: ActivityLogService,
+  ) {}
 
   /**
    * CEO creates a new team within their company.
@@ -51,6 +55,16 @@ export class TeamsService {
         teamLead: { select: { id: true, fullName: true, email: true, role: true } },
       },
     });
+
+    // Log team creation
+    await this.activityLog.logAction(
+      team.teamLead.id,
+      companyId,
+      "TEAM_CREATED",
+      "Team",
+      team.id,
+      { teamName: team.name, teamLeadName: team.teamLead.fullName },
+    );
 
     return team;
   }
