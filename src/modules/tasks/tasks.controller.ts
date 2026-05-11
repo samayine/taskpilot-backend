@@ -35,8 +35,8 @@ export class TasksController {
   // Team Lead endpoints
   // ──────────────────────────────────────────────
 
-  /** Team Lead creates and assigns a task to an employee. */
-  @Roles(Role.TEAM_LEAD)
+  /** Team Lead (or CEO acting as lead) creates and assigns a task. */
+  @Roles(Role.CEO, Role.TEAM_LEAD)
   @Post()
   create(@Body() dto: CreateTaskDto, @Request() req) {
     return this.tasksService.createTask(
@@ -46,8 +46,8 @@ export class TasksController {
     );
   }
 
-  /** Team Lead views all tasks across their teams (filterable). */
-  @Roles(Role.TEAM_LEAD)
+  /** Team Lead (or CEO) views all tasks across their teams (filterable). */
+  @Roles(Role.CEO, Role.TEAM_LEAD)
   @Get("team")
   findTeamTasks(@Query() filters: TaskFilterDto, @Request() req) {
     return this.tasksService.findTeamTasks(
@@ -57,8 +57,8 @@ export class TasksController {
     );
   }
 
-  /** Team Lead reviews a submitted task (APPROVE or REJECT). */
-  @Roles(Role.TEAM_LEAD)
+  /** Team Lead (or CEO) reviews a submitted task (APPROVE or REJECT). */
+  @Roles(Role.CEO, Role.TEAM_LEAD)
   @Patch(":id/review")
   review(
     @Param("id") taskId: string,

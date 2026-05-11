@@ -16,7 +16,7 @@ import { AddTeamMemberDto } from "./dto/add-team-member.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { RolesGuard } from "src/common/guards/roles.guard";
 import { Roles } from "src/common/decorators/roles.decorator";
-import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
+import { ApiTags, ApiBearerAuth, ApiQuery } from "@nestjs/swagger";
 import { Role } from "@prisma/client";
 
 @ApiTags("Teams")
@@ -33,11 +33,16 @@ export class TeamsController {
     return this.teamsService.createTeam(dto, req.user.companyId);
   }
 
-  /** CEO or Team Lead can view all teams in their company. */
+  /** CEO or Team Lead can view all teams (filterable by department). */
+  @ApiQuery({ name: "department", required: false, description: "Filter teams by department" })
   @Roles(Role.CEO, Role.TEAM_LEAD)
   @Get()
-  findAll(@Query() pagination: PaginationDto, @Request() req) {
-    return this.teamsService.findAllByCompany(req.user.companyId, pagination);
+  findAll(
+    @Query() pagination: PaginationDto,
+    @Query("department") department: string,
+    @Request() req,
+  ) {
+    return this.teamsService.findAllByCompany(req.user.companyId, pagination, department);
   }
 
   /** CEO or Team Lead can view a single team. */

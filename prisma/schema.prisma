@@ -48,6 +48,7 @@ model User {
 
 enum Role {
   CEO
+  ASSISTANT
   TEAM_LEAD
   EMPLOYEE
 }
@@ -56,6 +57,7 @@ model Team {
   id          String   @id @default(uuid())
   name        String
   description String?
+  department  String?
   createdAt   DateTime @default(now())
 
   companyId String

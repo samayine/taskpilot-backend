@@ -19,7 +19,15 @@ export class UsersService {
   async createUser(
     createUserDto: CreateUserDto,
     companyId: string,
+    callerRole: Role,
   ): Promise<Omit<User, 'password'>> {
+    // Only CEO can create ASSISTANT accounts
+    if (createUserDto.role === Role.ASSISTANT && callerRole !== Role.CEO) {
+      throw new BadRequestException(
+        'Only the CEO can create ASSISTANT accounts',
+      );
+    }
+
     const existingEmail = await this.prismaService.user.findUnique({
       where: { email: createUserDto.email },
     });
@@ -81,8 +89,8 @@ export class UsersService {
       throw new NotFoundException("User not found");
     }
 
-    if (user.role === Role.CEO) {
-      throw new BadRequestException("Cannot block the CEO");
+    if (user.role === Role.CEO || user.role === Role.ASSISTANT) {
+      throw new BadRequestException("Cannot block CEO or ASSISTANT users");
     }
 
     if (user.isBlocked) {

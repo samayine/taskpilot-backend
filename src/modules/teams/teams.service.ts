@@ -40,9 +40,9 @@ export class TeamsService {
       );
     }
 
-    if (teamLead.role !== Role.TEAM_LEAD) {
+    if (teamLead.role !== Role.TEAM_LEAD && teamLead.role !== Role.CEO) {
       throw new BadRequestException(
-        "Designated user does not have the TEAM_LEAD role",
+        "Designated user must have the TEAM_LEAD or CEO role",
       );
     }
 
@@ -50,6 +50,7 @@ export class TeamsService {
       data: {
         name: dto.name,
         description: dto.description,
+        department: dto.department,
         companyId,
         teamLeadId: dto.teamLeadId,
       },
@@ -74,8 +75,11 @@ export class TeamsService {
   /**
    * Get all teams for a company.
    */
-  async findAllByCompany(companyId: string, pagination: PaginationDto) {
-    const where = { companyId };
+  async findAllByCompany(companyId: string, pagination: PaginationDto, department?: string) {
+    const where: any = { companyId };
+    if (department) {
+      where.department = { equals: department, mode: 'insensitive' };
+    }
 
     const [data, total] = await Promise.all([
       this.prisma.team.findMany({

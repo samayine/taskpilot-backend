@@ -31,14 +31,14 @@ export class UsersController {
   // ──────────────────────────────────────────────
 
   /** Any user: view their own profile. */
-  @Roles(Role.CEO, Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Roles(Role.CEO, Role.ASSISTANT, Role.TEAM_LEAD, Role.EMPLOYEE)
   @Get("profile")
   getProfile(@Request() req) {
     return this.usersService.getProfile(req.user.userId);
   }
 
   /** Any user: update their name or password. */
-  @Roles(Role.CEO, Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Roles(Role.CEO, Role.ASSISTANT, Role.TEAM_LEAD, Role.EMPLOYEE)
   @Patch("profile")
   updateProfile(@Body() dto: UpdateProfileDto, @Request() req) {
     return this.usersService.updateProfile(req.user.userId, dto);
@@ -49,30 +49,31 @@ export class UsersController {
   // ──────────────────────────────────────────────
 
   /**
-   * CEO-only: create a new employee or team lead account.
+   * CEO or ASSISTANT: create a new employee or team lead account.
+   * Only CEO can create ASSISTANT accounts.
    */
-  @Roles(Role.CEO)
+  @Roles(Role.CEO, Role.ASSISTANT)
   @Post()
   createUser(@Body() createUserDto: CreateUserDto, @Request() req) {
-    return this.usersService.createUser(createUserDto, req.user.companyId);
+    return this.usersService.createUser(createUserDto, req.user.companyId, req.user.role);
   }
 
-  /** CEO: list all users in the company (paginated). */
-  @Roles(Role.CEO)
+  /** CEO or ASSISTANT: list all users in the company (paginated). */
+  @Roles(Role.CEO, Role.ASSISTANT)
   @Get()
   findAll(@Query() pagination: PaginationDto, @Request() req) {
     return this.usersService.findAllByCompany(req.user.companyId, pagination);
   }
 
-  /** CEO: block a user (prevents login). */
-  @Roles(Role.CEO)
+  /** CEO or ASSISTANT: block a user (prevents login). */
+  @Roles(Role.CEO, Role.ASSISTANT)
   @Patch(":id/block")
   blockUser(@Param("id") userId: string, @Request() req) {
     return this.usersService.blockUser(userId, req.user.companyId);
   }
 
-  /** CEO: unblock a user. */
-  @Roles(Role.CEO)
+  /** CEO or ASSISTANT: unblock a user. */
+  @Roles(Role.CEO, Role.ASSISTANT)
   @Patch(":id/unblock")
   unblockUser(@Param("id") userId: string, @Request() req) {
     return this.usersService.unblockUser(userId, req.user.companyId);

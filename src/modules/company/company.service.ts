@@ -42,6 +42,7 @@ export class CompanyService {
       totalUsers,
       usersByRole,
       totalTeams,
+      teamsByDepartment,
       totalTasks,
       tasksByStatus,
       tasksByPriority,
@@ -59,6 +60,13 @@ export class CompanyService {
 
       // Total teams
       this.prisma.team.count({ where: { companyId } }),
+
+      // Teams grouped by department
+      this.prisma.team.groupBy({
+        by: ["department"],
+        where: { companyId },
+        _count: true,
+      }),
 
       // Total tasks (via teams that belong to this company)
       this.prisma.task.count({
@@ -98,7 +106,16 @@ export class CompanyService {
           {},
         ),
       },
-      teams: { total: totalTeams },
+      teams: {
+        total: totalTeams,
+        byDepartment: teamsByDepartment.reduce(
+          (acc, item) => ({
+            ...acc,
+            [item.department ?? "Unassigned"]: item._count,
+          }),
+          {},
+        ),
+      },
       tasks: {
         total: totalTasks,
         byStatus: tasksByStatus.reduce(
