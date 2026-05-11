@@ -30,20 +30,21 @@ async function bootstrap() {
   const config = new DocumentBuilder()
     .setTitle("TaskPilot API")
     .setDescription(
-      "Company-level workflow management system with RBAC, task lifecycle, and real-time notifications",
+      "Company-level workflow management system with RBAC (CEO, ASSISTANT, TEAM_LEAD, EMPLOYEE), " +
+      "strict task lifecycle, department-based team organization, and real-time WebSocket notifications.",
     )
     .setVersion("1.0")
     .addBearerAuth(
       { type: "http", scheme: "bearer", bearerFormat: "JWT" },
       "JWT",
     )
-    .addTag("Auth", "Registration and login")
-    .addTag("Users", "User management (CEO only)")
-    .addTag("Teams", "Team management (CEO only)")
-    .addTag("Tasks", "Task lifecycle management")
-    .addTag("Notifications", "Real-time notifications")
-    .addTag("Company", "Company profile and CEO dashboard")
-    .addTag("Activity Logs", "System-wide activity tracking")
+    .addTag("Auth", "Company registration and user login")
+    .addTag("Users", "User provisioning and profile management (CEO + ASSISTANT)")
+    .addTag("Teams", "Team creation, member management, and department filtering")
+    .addTag("Tasks", "Task lifecycle — create, assign, review, approve/reject")
+    .addTag("Notifications", "Real-time WebSocket notifications and history")
+    .addTag("Company", "Company profile and CEO dashboard statistics")
+    .addTag("Activity Logs", "System-wide activity audit trail (CEO only)")
     .addTag("Comments", "Task collaboration comments")
     .build();
 
