@@ -60,3 +60,4 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # Internal team documentation
 taskpilot.md
 taskpilot_status_report.md
+implementation_plan.md

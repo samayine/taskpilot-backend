@@ -33,16 +33,16 @@ export class TeamsController {
     return this.teamsService.createTeam(dto, req.user.companyId);
   }
 
-  /** CEO or Team Lead can view all teams (filterable by department). */
-  @ApiQuery({ name: "department", required: false, description: "Filter teams by department" })
-  @Roles(Role.CEO, Role.TEAM_LEAD)
+  /** CEO or Team Lead can view all teams (filterable by departmentId). */
+  @ApiQuery({ name: "departmentId", required: false, description: "Filter teams by department ID" })
+  @Roles(Role.CEO, Role.TEAM_LEAD, Role.DEPARTMENT_HEAD)
   @Get()
   findAll(
     @Query() pagination: PaginationDto,
-    @Query("department") department: string,
+    @Query("departmentId") departmentId: string,
     @Request() req,
   ) {
-    return this.teamsService.findAllByCompany(req.user.companyId, pagination, department);
+    return this.teamsService.findAllByCompany(req.user.companyId, pagination, departmentId);
   }
 
   /** CEO or Team Lead can view a single team. */

@@ -50,7 +50,7 @@ export class TeamsService {
       data: {
         name: dto.name,
         description: dto.description,
-        department: dto.department,
+        departmentId: dto.departmentId,
         companyId,
         teamLeadId: dto.teamLeadId,
       },
@@ -75,10 +75,10 @@ export class TeamsService {
   /**
    * Get all teams for a company.
    */
-  async findAllByCompany(companyId: string, pagination: PaginationDto, department?: string) {
+  async findAllByCompany(companyId: string, pagination: PaginationDto, departmentId?: string) {
     const where: any = { companyId };
-    if (department) {
-      where.department = { equals: department, mode: 'insensitive' };
+    if (departmentId) {
+      where.departmentId = departmentId;
     }
 
     const [data, total] = await Promise.all([

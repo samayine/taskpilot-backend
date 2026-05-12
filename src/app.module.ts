@@ -11,6 +11,8 @@ import { NotificationsModule } from "./modules/notifications/notifications.modul
 import { ActivityLogModule } from "./modules/activity-log/activity-log.module";
 import { CompanyModule } from "./modules/company/company.module";
 import { CommentsModule } from "./modules/comments/comments.module";
+import { DepartmentsModule } from "./modules/departments/departments.module";
+import { ProjectsModule } from "./modules/projects/projects.module";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { APP_GUARD } from "@nestjs/core";
 
@@ -36,6 +38,8 @@ import { APP_GUARD } from "@nestjs/core";
     TasksModule,
     NotificationsModule,
     CommentsModule,
+    DepartmentsModule,
+    ProjectsModule,
   ],
   controllers: [AppController],
   providers: [

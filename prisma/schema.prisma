@@ -16,32 +16,42 @@ model Company {
   name      String
   createdAt DateTime @default(now())
 
-  users User[]
-  teams Team[]
+  users        User[]
+  teams        Team[]
   activityLogs ActivityLog[]
+  departments  Department[]
+  projects     Project[]
+  chatChannels ChatChannel[]
+  documents    Document[]
 }
 
 model User {
-  id        String   @id @default(uuid())
-  fullName  String
-  email     String   @unique
-  password  String
-  role      Role
-  isBlocked Boolean  @default(false)
-  status    String   @default("Active")
-  createdAt DateTime @default(now())
+  id                 String   @id @default(uuid())
+  fullName           String
+  email              String   @unique
+  password           String
+  role               Role
+  isBlocked          Boolean  @default(false)
+  status             String   @default("Active")
+  mustChangePassword Boolean  @default(false)
+  createdAt          DateTime @default(now())
 
   companyId String
   company   Company @relation(fields: [companyId], references: [id])
 
-  teams         Team[]
-  teamMembers   TeamMember[]
-  createdTasks   Task[]       @relation("CreatedTasks")
-  assignedTasks  Task[]       @relation("AssignedTasks")
-  notifications  Notification[]
-  taskHistoryChanges TaskHistory[] @relation("TaskHistoryChanges")
-  activityLogs   ActivityLog[]
-  comments       Comment[]
+  teams              Team[]
+  teamMembers        TeamMember[]
+  createdTasks       Task[]             @relation("CreatedTasks")
+  assignedTasks      Task[]             @relation("AssignedTasks")
+  notifications      Notification[]
+  taskHistoryChanges TaskHistory[]      @relation("TaskHistoryChanges")
+  activityLogs       ActivityLog[]
+  comments           Comment[]
+  headOfDepartments  Department[]       @relation("DepartmentHead")
+  createdProjects    Project[]          @relation("ProjectCreator")
+  chatMemberships    ChatChannelMember[]
+  chatMessages       ChatMessage[]
+  documents          Document[]         @relation("DocumentUploader")
 
   @@index([companyId])
 }
@@ -49,19 +59,51 @@ model User {
 enum Role {
   CEO
   ASSISTANT
+  DEPARTMENT_HEAD
   TEAM_LEAD
   EMPLOYEE
 }
+
+// ──────────────────────────────────────────────
+// Departments
+// ──────────────────────────────────────────────
+
+model Department {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  // The department head
+  headId String?
+  head   User?   @relation("DepartmentHead", fields: [headId], references: [id])
+
+  teams              Team[]
+  projectDepartments ProjectDepartment[]
+
+  @@unique([companyId, name]) // No duplicate department names within a company
+  @@index([companyId])
+}
+
+// ──────────────────────────────────────────────
+// Teams
+// ──────────────────────────────────────────────
 
 model Team {
   id          String   @id @default(uuid())
   name        String
   description String?
-  department  String?
   createdAt   DateTime @default(now())
 
   companyId String
   company   Company @relation(fields: [companyId], references: [id])
+
+  // Optional link to a department (replaces old `department: String?`)
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
 
   teamLeadId String
   teamLead   User         @relation(fields: [teamLeadId], references: [id])
@@ -70,6 +112,7 @@ model Team {
 
   @@index([companyId])
   @@index([teamLeadId])
+  @@index([departmentId])
 }
 
 model TeamMember {
@@ -83,6 +126,51 @@ model TeamMember {
   team Team @relation(fields: [teamId], references: [id])
 
   @@unique([userId, teamId])
+}
+
+// ──────────────────────────────────────────────
+// Projects (Cross-Department)
+// ──────────────────────────────────────────────
+
+model Project {
+  id          String        @id @default(uuid())
+  name        String
+  description String?
+  status      ProjectStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  creatorId String
+  creator   User   @relation("ProjectCreator", fields: [creatorId], references: [id])
+
+  departments ProjectDepartment[]
+  tasks       Task[]
+  channels    ChatChannel[]
+  documents   Document[]
+
+  @@index([companyId])
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+model ProjectDepartment {
+  id           String   @id @default(uuid())
+  projectId    String
+  departmentId String
+  joinedAt     DateTime @default(now())
+
+  project    Project    @relation(fields: [projectId], references: [id])
+  department Department @relation(fields: [departmentId], references: [id])
+
+  @@unique([projectId, departmentId])
 }
 
 // ──────────────────────────────────────────────
@@ -127,6 +215,13 @@ model Task {
   assigneeId String
   assignee   User   @relation("AssignedTasks", fields: [assigneeId], references: [id])
 
+  // Optional project link (for cross-department projects)
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
+
+  // Which department this task is tagged for (in cross-dept projects)
+  departmentTag String?
+
   notifications Notification[]
   history       TaskHistory[]
   comments      Comment[]
@@ -134,6 +229,7 @@ model Task {
   @@index([teamId])
   @@index([assigneeId])
   @@index([creatorId])
+  @@index([projectId])
 }
 
 // ──────────────────────────────────────────────
@@ -232,4 +328,124 @@ model ActivityLog {
 
   @@index([companyId])
   @@index([userId])
+}
+
+// ──────────────────────────────────────────────
+// Chat System
+// ──────────────────────────────────────────────
+
+model ChatChannel {
+  id        String      @id @default(uuid())
+  name      String
+  type      ChannelType @default(PROJECT)
+  createdAt DateTime    @default(now())
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  messages ChatMessage[]
+  members  ChatChannelMember[]
+
+  @@index([projectId])
+  @@index([companyId])
+}
+
+enum ChannelType {
+  PROJECT
+  DEPARTMENT
+  DIRECT
+  ANNOUNCEMENT
+}
+
+model ChatChannelMember {
+  id        String   @id @default(uuid())
+  channelId String
+  userId    String
+  joinedAt  DateTime @default(now())
+
+  channel ChatChannel @relation(fields: [channelId], references: [id])
+  user    User        @relation(fields: [userId], references: [id])
+
+  @@unique([channelId, userId])
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  content   String
+  createdAt DateTime @default(now())
+
+  channelId String
+  channel   ChatChannel @relation(fields: [channelId], references: [id])
+
+  senderId String
+  sender   User   @relation(fields: [senderId], references: [id])
+
+  documents DocumentShare[]
+
+  @@index([channelId])
+}
+
+// ──────────────────────────────────────────────
+// Document Management
+// ──────────────────────────────────────────────
+
+model Document {
+  id        String   @id @default(uuid())
+  fileName  String
+  fileUrl   String   // Cloud storage URL (S3, Cloudinary, etc.)
+  fileSize  Int?
+  mimeType  String?
+  createdAt DateTime @default(now())
+
+  uploaderId String
+  uploader   User   @relation("DocumentUploader", fields: [uploaderId], references: [id])
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  // Visibility control
+  visibility DocumentVisibility @default(ALL)
+
+  shares      DocumentShare[]
+  accessRules DocumentAccessRule[]
+
+  @@index([projectId])
+  @@index([companyId])
+}
+
+enum DocumentVisibility {
+  ALL              // Everyone in the project/team can see
+  DEPARTMENT_ONLY  // Only the uploader's department
+  SPECIFIC         // Only specific users/teams (defined in DocumentAccessRule)
+}
+
+model DocumentAccessRule {
+  id         String @id @default(uuid())
+  documentId String
+
+  document Document @relation(fields: [documentId], references: [id])
+
+  // Grant access to a specific user, team, or department
+  userId       String?
+  teamId       String?
+  departmentId String?
+
+  @@index([documentId])
+}
+
+model DocumentShare {
+  id        String @id @default(uuid())
+  messageId String
+  message   ChatMessage @relation(fields: [messageId], references: [id])
+
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id])
+
+  @@index([messageId])
 }

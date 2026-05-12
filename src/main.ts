@@ -30,8 +30,8 @@ async function bootstrap() {
   const config = new DocumentBuilder()
     .setTitle("TaskPilot API")
     .setDescription(
-      "Company-level workflow management system with RBAC (CEO, ASSISTANT, TEAM_LEAD, EMPLOYEE), " +
-      "strict task lifecycle, department-based team organization, and real-time WebSocket notifications.",
+      "Company-level workflow management system with RBAC (CEO, ASSISTANT, DEPARTMENT_HEAD, TEAM_LEAD, EMPLOYEE), " +
+      "strict task lifecycle, department-based team organization, cross-department projects, and real-time WebSocket notifications.",
     )
     .setVersion("1.0")
     .addBearerAuth(
@@ -46,6 +46,8 @@ async function bootstrap() {
     .addTag("Company", "Company profile and CEO dashboard statistics")
     .addTag("Activity Logs", "System-wide activity audit trail (CEO only)")
     .addTag("Comments", "Task collaboration comments")
+    .addTag("Departments", "Department CRUD and department head management")
+    .addTag("Projects", "Cross-department project management and dashboards")
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

@@ -12,10 +12,13 @@ export class CreateTeamDto {
   @IsOptional()
   description?: string;
 
-  @ApiPropertyOptional({ example: "Engineering", description: "Department this team belongs to" })
-  @IsString()
+  @ApiPropertyOptional({
+    example: "123e4567-e89b-12d3-a456-426614174000",
+    description: "ID of the department this team belongs to",
+  })
+  @IsUUID()
   @IsOptional()
-  department?: string;
+  departmentId?: string;
 
   /**
    * The userId of the user who will lead this team.
