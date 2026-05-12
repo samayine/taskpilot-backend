@@ -1,6 +1,6 @@
 # 🚀 TaskPilot — Backend API
 
-> Company-level workflow management system with role-based access control, task lifecycle management, real-time notifications, and full audit trail.
+> Enterprise-grade workflow management system with hierarchical RBAC, department-based organization, cross-department projects, real-time chat, document management, and full audit trail.
 
 ---
 
@@ -11,16 +11,23 @@ NestJS 11  →  Prisma 7 ORM  →  PostgreSQL (Neon.tech)
      ↓              ↓
   JWT Auth     WebSocket (Socket.io)
      ↓              ↓
-  RBAC Guards   Real-time Notifications
+  RBAC Guards   Real-time Notifications + Chat
+     ↓
+  5-Role Hierarchy (CEO → ASSISTANT → DEPARTMENT_HEAD → TEAM_LEAD → EMPLOYEE)
 ```
 
 ### Key Design Decisions
 
-- **Multi-tenancy** — Every user, team, and task is scoped by `companyId` from the JWT. Zero cross-company data leakage.
+- **Multi-tenancy** — Every entity is scoped by `companyId` from the JWT. Zero cross-company data leakage.
+- **Hierarchical RBAC** — 5-role system with `DEPARTMENT_HEAD` bridging executives and teams. Role-specific data visibility at every layer.
+- **Department-first organization** — Teams belong to departments. Department heads manage their teams and view cross-team metrics.
+- **Cross-department projects** — Projects span multiple departments with per-department task tagging and dashboard breakdowns.
 - **Strict task lifecycle** — Tasks follow a state machine (`PENDING → IN_PROGRESS → SUBMITTED → REVIEW → COMPLETED/REJECTED`). Invalid transitions return clear errors.
+- **Real-time chat** — WebSocket-based messaging on the `/chat` namespace with channel membership and REST fallback.
+- **Document visibility controls** — Three levels: `ALL`, `DEPARTMENT_ONLY`, `SPECIFIC` with granular access rules for users, teams, and departments.
 - **Audit trail** — Every task mutation is recorded in `TaskHistory`. System-wide actions are tracked in `ActivityLog`.
 - **Consistent API contract** — All success responses return `{ success: true, data: ... }` via a global `TransformInterceptor`. All errors return `{ success: false, statusCode, message, error, timestamp }`.
-- **Filtering & Search** — Task list endpoints support filtering by `status`, `priority`, and free-text `search` on task titles.
+- **Auto-provisioning** — ASSISTANT can create users without passwords; a temporary password is auto-generated with `mustChangePassword` flag in the JWT.
 
 ---
 
@@ -58,10 +65,13 @@ npm install
 cp .env.example .env
 # Edit .env with your DATABASE_URL, JWT_SECRET, etc.
 
-# 4. Run migrations
-npx prisma migrate dev
+# 4. Sync database schema
+npx prisma db push
 
-# 5. Start dev server
+# 5. Generate Prisma client
+npx prisma generate
+
+# 6. Start dev server
 npm run start:dev
 ```
 
@@ -89,36 +99,15 @@ Swagger docs at `http://localhost:8000/api/docs`
 
 ---
 
-## 🐳 Docker
-
-The project uses a **multi-stage Docker build** optimized for production:
-
-| Stage | Purpose |
-|---|---|
-| `deps` | Install dependencies with `npm ci` |
-| `build` | Generate Prisma client, compile TypeScript, prune dev deps |
-| `production` | Alpine-based runtime (~149MB), non-root user |
-
-```bash
-# Build image
-docker compose build
-
-# Run container
-docker compose up -d
-
-# Health check
-curl http://localhost:8000/api/v1/health
-```
-
----
-
 ## 👥 Role-Based Access Control
 
 | Role | Capabilities |
 |---|---|
-| **CEO** | Create users, manage teams, view dashboard, block/unblock users, view audit logs |
-| **Team Lead** | Create & assign tasks, review submissions (approve/reject), view team tasks, comment on tasks |
-| **Employee** | View assigned tasks, update task status, submit work for review, comment on tasks |
+| **CEO** | Full system access. Create departments, projects, users. View all dashboards and audit logs. Assign department heads. |
+| **ASSISTANT** | Create/manage users (auto-gen passwords), block/unblock users, list employees. HR-like administration. |
+| **DEPARTMENT_HEAD** | Manage teams within their department. View department-wide tasks. Create tasks, review submissions, access project dashboards. |
+| **TEAM_LEAD** | Create & assign tasks, review submissions (approve/reject), view team tasks, manage team members, comment on tasks. |
+| **EMPLOYEE** | View assigned tasks, update task status, submit work for review, comment on tasks, access chat channels. |
 
 ---
 
@@ -130,41 +119,81 @@ curl http://localhost:8000/api/v1/health
 | `POST` | `/auth/register-company` | Register company + CEO account |
 | `POST` | `/auth/login` | Login → JWT token (rate limited: 5/min) |
 
-### CEO Only
+### Users (CEO / ASSISTANT)
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/users` | Create TEAM_LEAD or EMPLOYEE |
+| `POST` | `/users` | Create user (DEPARTMENT_HEAD, TEAM_LEAD, EMPLOYEE). Password auto-generated if omitted. |
 | `GET` | `/users` | List all company users (paginated) |
 | `PATCH` | `/users/:id/block` | Block a user |
 | `PATCH` | `/users/:id/unblock` | Unblock a user |
-| `POST` | `/teams` | Create a team |
-| `GET` | `/teams` | List all company teams (paginated) |
-| `GET` | `/teams/:id` | Get team details + members |
-| `POST` | `/teams/:id/members` | Add member to team |
-| `DELETE` | `/teams/:id/members/:userId` | Remove member |
-| `GET` | `/company` | View company profile |
-| `PATCH` | `/company` | Update company details |
-| `GET` | `/company/dashboard` | Aggregated company statistics |
-| `GET` | `/activity-logs` | System-wide activity logs (paginated) |
-
-### Team Lead
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/tasks` | Create and assign a task |
-| `GET` | `/tasks/team` | View all team tasks (paginated, filterable) |
-| `PATCH` | `/tasks/:id/review` | Approve or reject a task |
-
-### Employee
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/tasks/my` | View assigned tasks (paginated, filterable) |
-| `PATCH` | `/tasks/:id/status` | Update task status (strict lifecycle) |
 
 ### Self-Service (All Roles)
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/users/profile` | View own profile |
-| `PATCH` | `/users/profile` | Update name or password |
+| `PATCH` | `/users/profile` | Update name or password (clears `mustChangePassword`) |
+
+### Departments (CEO / DEPARTMENT_HEAD)
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/departments` | Create a department (CEO) |
+| `GET` | `/departments` | List departments (CEO: all, Dept Head: own) |
+| `GET` | `/departments/:id` | Department detail with teams |
+| `PATCH` | `/departments/:id` | Update department (CEO) |
+| `PATCH` | `/departments/:id/head` | Assign/change department head (CEO) |
+| `POST` | `/departments/:id/teams` | Create team within department (Dept Head) |
+| `GET` | `/departments/:id/employees` | List department employees across all teams |
+
+### Projects (CEO / DEPARTMENT_HEAD / TEAM_LEAD)
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/projects` | Create cross-department project (CEO) |
+| `GET` | `/projects` | List projects (role-scoped visibility) |
+| `GET` | `/projects/:id` | Project detail with department breakdown |
+| `PATCH` | `/projects/:id` | Update project status/details (CEO) |
+| `POST` | `/projects/:id/departments/:deptId` | Link department to project (CEO) |
+| `DELETE` | `/projects/:id/departments/:deptId` | Unlink department from project (CEO) |
+| `GET` | `/projects/:id/tasks` | Project tasks (dept heads see only their dept's tasks) |
+| `GET` | `/projects/:id/dashboard` | Per-department progress dashboard |
+
+### Teams (CEO / DEPARTMENT_HEAD / TEAM_LEAD)
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/teams` | Create a team |
+| `GET` | `/teams` | List teams (filterable by `departmentId`) |
+| `GET` | `/teams/:id` | Get team details + members |
+| `POST` | `/teams/:id/members` | Add member to team |
+| `DELETE` | `/teams/:id/members/:userId` | Remove member |
+
+### Tasks
+| Method | Endpoint | Role | Description |
+|---|---|---|---|
+| `POST` | `/tasks` | CEO, Dept Head, Team Lead | Create and assign a task |
+| `GET` | `/tasks/team` | CEO, Dept Head, Team Lead | View team tasks (paginated, filterable) |
+| `GET` | `/tasks/department` | CEO, Dept Head | View all tasks across department teams |
+| `PATCH` | `/tasks/:id/review` | CEO, Dept Head, Team Lead | Approve or reject a submitted task |
+| `GET` | `/tasks/my` | Employee | View assigned tasks |
+| `PATCH` | `/tasks/:id/status` | Employee | Update task status (strict lifecycle) |
+| `GET` | `/tasks/:id` | All | View single task (ownership-scoped) |
+| `GET` | `/tasks/:id/history` | CEO, Dept Head, Team Lead | Audit trail |
+
+### Chat (All Roles)
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/chat/channels` | Create a chat channel (CEO, Dept Head, Team Lead) |
+| `GET` | `/chat/channels` | List channels the user belongs to |
+| `GET` | `/chat/channels/:id/messages` | Get channel messages (paginated) |
+| `POST` | `/chat/channels/:id/messages` | Send a message (REST fallback) |
+| `POST` | `/chat/channels/:id/members` | Add a member to the channel |
+
+### Documents (All Roles)
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/documents` | Register a document (metadata + cloud URL) |
+| `GET` | `/documents` | List documents (visibility-filtered) |
+| `GET` | `/documents/:id` | Get document (access-checked) |
+| `PATCH` | `/documents/:id/visibility` | Change visibility (owner/CEO) |
+| `POST` | `/documents/:id/access` | Grant access to user/team/department |
 
 ### Task Collaboration
 | Method | Endpoint | Description |
@@ -172,11 +201,17 @@ curl http://localhost:8000/api/v1/health
 | `POST` | `/tasks/:taskId/comments` | Add a comment (assignee/creator only) |
 | `GET` | `/tasks/:taskId/comments` | List comments (paginated) |
 
-### Shared
+### Company Dashboard (CEO)
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/tasks/:id` | View single task (ownership-scoped) |
-| `GET` | `/tasks/:id/history` | Audit trail (CEO + Team Lead) |
+| `GET` | `/company` | View company profile |
+| `PATCH` | `/company` | Update company details |
+| `GET` | `/company/dashboard` | Stats: users, teams, departments, projects, tasks |
+| `GET` | `/activity-logs` | System-wide activity logs (paginated) |
+
+### Notifications
+| Method | Endpoint | Description |
+|---|---|---|
 | `GET` | `/notifications` | Get notifications (paginated) |
 | `GET` | `/notifications/unread-count` | Unread count |
 | `PATCH` | `/notifications/:id/read` | Mark as read |
@@ -186,7 +221,7 @@ curl http://localhost:8000/api/v1/health
 
 ### Task Filtering
 
-Task list endpoints (`GET /tasks/team` and `GET /tasks/my`) support the following query parameters:
+Task list endpoints support the following query parameters:
 
 | Parameter | Type | Example | Description |
 |---|---|---|---|
@@ -214,9 +249,9 @@ Each transition triggers:
 
 ---
 
-## 🔔 Real-Time Notifications
+## 🔔 Real-Time Systems
 
-Connect via WebSocket with JWT authentication:
+### Notifications (`/notifications` namespace)
 
 ```javascript
 import { io } from "socket.io-client";
@@ -230,6 +265,40 @@ socket.on("notification", (data) => {
 });
 ```
 
+### Chat (`/chat` namespace)
+
+```javascript
+const chatSocket = io("http://localhost:8000/chat", {
+  auth: { token: "Bearer <jwt_token>" }
+});
+
+// Join a channel
+chatSocket.emit("joinChannel", { channelId: "<channel-id>" });
+
+// Listen for messages
+chatSocket.on("newMessage", (message) => {
+  console.log("New message:", message);
+});
+
+// Send a message
+chatSocket.emit("sendMessage", {
+  channelId: "<channel-id>",
+  content: "Hello team!"
+});
+```
+
+**Channel Types:** `PROJECT`, `DEPARTMENT`, `DIRECT`, `ANNOUNCEMENT`
+
+---
+
+## 📄 Document Visibility
+
+| Level | Behavior |
+|---|---|
+| `ALL` | Everyone in the project/company can see the document |
+| `DEPARTMENT_ONLY` | Only users in the uploader's department can see it |
+| `SPECIFIC` | Only users/teams/departments with explicit `DocumentAccessRule` entries can see it |
+
 ---
 
 ## 🔒 Security
@@ -237,6 +306,7 @@ socket.on("notification", (data) => {
 | Feature | Implementation |
 |---|---|
 | Password hashing | bcrypt (10 salt rounds) |
+| Auto-provisioning | ASSISTANT creates users → temp password + `mustChangePassword` flag |
 | JWT expiry | 24 hours |
 | CORS | Configurable via `CORS_ORIGIN` env |
 | Rate limiting | 60 req/min global, 5 req/min on login |
@@ -252,7 +322,7 @@ socket.on("notification", (data) => {
 ```
 src/
 ├── main.ts                       # Bootstrap, CORS, Swagger, global pipes/filters/interceptors
-├── app.module.ts                 # Root module
+├── app.module.ts                 # Root module (13 feature modules)
 ├── common/
 │   ├── decorators/               # @Roles() decorator
 │   ├── guards/                   # RolesGuard (RBAC)
@@ -264,8 +334,12 @@ src/
 └── modules/
     ├── auth/                     # Login, registration, JWT strategy
     ├── users/                    # User CRUD + block/unblock + self-service profile
-    ├── teams/                    # Team management + members
-    ├── tasks/                    # Task lifecycle state machine + filtering
+    ├── departments/              # Department CRUD + head assignment + team creation
+    ├── projects/                 # Cross-department projects + dashboards
+    ├── teams/                    # Team management + members (FK-linked to departments)
+    ├── tasks/                    # Task lifecycle state machine + department-scoped views
+    ├── chat/                     # WebSocket chat gateway + channels + messages
+    ├── documents/                # Document management + visibility controls + access rules
     ├── comments/                 # Task collaboration comments
     ├── notifications/            # WebSocket + REST notifications
     ├── task-history/             # Internal audit trail
@@ -278,17 +352,71 @@ src/
 ## 📊 Database Schema
 
 ```
-Company  1──→ N  User
-Company  1──→ N  Team
-Team     1──→ N  Task
-Team     1──→ N  TeamMember
-User     1──→ N  Task (as creator)
-User     1──→ N  Task (as assignee)
-Task     1──→ N  TaskHistory
-Task     1──→ N  Comment
-Task     1──→ N  Notification
-User     1──→ N  Comment (as author)
-Company  1──→ N  ActivityLog
+Company    1──→ N  User
+Company    1──→ N  Team
+Company    1──→ N  Department
+Company    1──→ N  Project
+Company    1──→ N  ChatChannel
+Company    1──→ N  Document
+
+Department 1──→ 1  User (head)
+Department 1──→ N  Team
+Department N←──→N  Project (via ProjectDepartment)
+
+Team       1──→ N  Task
+Team       1──→ N  TeamMember
+Team       N──→ 1  Department (optional FK)
+
+Project    1──→ N  Task
+Project    1──→ N  ChatChannel
+Project    1──→ N  Document
+
+User       1──→ N  Task (as creator)
+User       1──→ N  Task (as assignee)
+User       1──→ N  ChatMessage (as sender)
+User       1──→ N  Document (as uploader)
+User       N←──→N  ChatChannel (via ChatChannelMember)
+
+Task       1──→ N  TaskHistory
+Task       1──→ N  Comment
+Task       1──→ N  Notification
+
+Document   1──→ N  DocumentAccessRule
+Document   N←──→N  ChatMessage (via DocumentShare)
+```
+
+### Enums
+
+| Enum | Values |
+|---|---|
+| `Role` | `CEO`, `ASSISTANT`, `DEPARTMENT_HEAD`, `TEAM_LEAD`, `EMPLOYEE` |
+| `TaskStatus` | `PENDING`, `IN_PROGRESS`, `SUBMITTED`, `REVIEW`, `COMPLETED`, `REJECTED` |
+| `Priority` | `LOW`, `MEDIUM`, `HIGH`, `URGENT` |
+| `ProjectStatus` | `ACTIVE`, `ON_HOLD`, `COMPLETED`, `ARCHIVED` |
+| `ChannelType` | `PROJECT`, `DEPARTMENT`, `DIRECT`, `ANNOUNCEMENT` |
+| `DocumentVisibility` | `ALL`, `DEPARTMENT_ONLY`, `SPECIFIC` |
+
+---
+
+## 🐳 Docker
+
+The project uses a **multi-stage Docker build** optimized for production:
+
+| Stage | Purpose |
+|---|---|
+| `deps` | Install dependencies with `npm ci` |
+| `build` | Generate Prisma client, compile TypeScript, prune dev deps |
+| `production` | Alpine-based runtime (~149MB), non-root user |
+
+```bash
+# Build image
+docker compose build
+
+# Run container
+docker compose up -d
+
+# Health check
+curl http://localhost:8000/api/v1/health
 ```
 
 ---
