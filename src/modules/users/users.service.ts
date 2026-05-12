@@ -11,6 +11,7 @@ import { UpdateProfileDto } from "./dto/update-profile.dto";
 import { PaginationDto } from "src/common/dto/pagination.dto";
 import { paginateArgs, paginate } from "src/common/helpers/pagination.helper";
 import * as bcrypt from "bcrypt";
+import * as crypto from "crypto";
 
 @Injectable()
 export class UsersService {
@@ -20,11 +21,14 @@ export class UsersService {
     createUserDto: CreateUserDto,
     companyId: string,
     callerRole: Role,
-  ): Promise<Omit<User, 'password'>> {
-    // Only CEO can create ASSISTANT accounts
-    if (createUserDto.role === Role.ASSISTANT && callerRole !== Role.CEO) {
+  ) {
+    // Only CEO can create ASSISTANT or DEPARTMENT_HEAD accounts
+    if (
+      (createUserDto.role === Role.ASSISTANT || createUserDto.role === Role.DEPARTMENT_HEAD) &&
+      callerRole !== Role.CEO
+    ) {
       throw new BadRequestException(
-        'Only the CEO can create ASSISTANT accounts',
+        'Only the CEO can create ASSISTANT or DEPARTMENT_HEAD accounts',
       );
     }
 
@@ -36,18 +40,35 @@ export class UsersService {
       throw new ConflictException("Email already in use");
     }
 
-    const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+    // Auto-generate password if not provided (ASSISTANT creating employees)
+    let rawPassword = createUserDto.password;
+    let mustChangePassword = false;
+
+    if (!rawPassword) {
+      rawPassword = crypto.randomBytes(8).toString("hex"); // 16 char random password
+      mustChangePassword = true;
+    }
+
+    const hashedPassword = await bcrypt.hash(rawPassword, 10);
+
+    const { departmentId, password: _pw, ...userData } = createUserDto;
 
     const user = await this.prismaService.user.create({
       data: {
-        ...createUserDto,
+        ...userData,
         password: hashedPassword,
-        companyId: companyId,
+        mustChangePassword,
+        companyId,
       },
     });
 
     const { password, ...safeUser } = user;
-    return safeUser;
+
+    // Return temp password so ASSISTANT can share it with the employee
+    return {
+      ...safeUser,
+      ...(mustChangePassword ? { temporaryPassword: rawPassword } : {}),
+    };
   }
 
   /**
@@ -191,6 +212,8 @@ export class UsersService {
       }
 
       data.password = await bcrypt.hash(dto.newPassword, 10);
+      // Clear the mustChangePassword flag when user sets a new password
+      data.mustChangePassword = false;
     }
 
     if (Object.keys(data).length === 0) {

@@ -47,4 +47,26 @@ export class CreateTaskDto {
   @IsUUID()
   @IsNotEmpty()
   teamId: string;
+
+  /**
+   * Optional: link this task to a project.
+   */
+  @ApiPropertyOptional({
+    example: "123e4567-e89b-12d3-a456-426614174002",
+    description: "Project this task is part of (for cross-department projects)",
+  })
+  @IsUUID()
+  @IsOptional()
+  projectId?: string;
+
+  /**
+   * Optional: tag which department this task belongs to (in cross-dept projects).
+   */
+  @ApiPropertyOptional({
+    example: "Engineering",
+    description: "Department tag for filtering in cross-department projects",
+  })
+  @IsString()
+  @IsOptional()
+  departmentTag?: string;
 }

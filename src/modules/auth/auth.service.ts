@@ -85,6 +85,7 @@ export class AuthService {
       email: user.email,
       role: user.role,
       companyId: user.companyId,
+      mustChangePassword: user.mustChangePassword,
     };
     // Log the login (fire-and-forget, don't block response)
     this.activityLog.logAction(

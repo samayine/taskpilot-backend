@@ -400,6 +400,63 @@ export class TasksService {
   }
 
   // ──────────────────────────────────────────────
+  // Department Head: View all tasks across department teams
+  // ──────────────────────────────────────────────
+
+  async findDepartmentTasks(
+    userId: string,
+    companyId: string,
+    role: Role,
+    filters: TaskFilterDto,
+  ) {
+    let teamIds: string[];
+
+    if (role === Role.CEO) {
+      // CEO sees all tasks across all teams
+      const teams = await this.prisma.team.findMany({
+        where: { companyId },
+        select: { id: true },
+      });
+      teamIds = teams.map((t) => t.id);
+    } else {
+      // Department head sees tasks across teams in their departments
+      const departments = await this.prisma.department.findMany({
+        where: { headId: userId, companyId },
+        include: { teams: { select: { id: true } } },
+      });
+
+      teamIds = departments.flatMap((d) => d.teams.map((t) => t.id));
+    }
+
+    if (teamIds.length === 0) {
+      return paginate([], 0, filters);
+    }
+
+    const filterConditions = this.buildTaskFilters(filters);
+    const where: Prisma.TaskWhereInput = {
+      ...filterConditions,
+      teamId: { in: teamIds },
+    };
+
+    const [data, total] = await Promise.all([
+      this.prisma.task.findMany({
+        where,
+        include: {
+          assignee: { select: { id: true, fullName: true, email: true } },
+          creator: { select: { id: true, fullName: true, email: true } },
+          team: { select: { id: true, name: true } },
+          project: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        ...paginateArgs(filters),
+      }),
+      this.prisma.task.count({ where }),
+    ]);
+
+    return paginate(data, total, filters);
+  }
+
+  // ──────────────────────────────────────────────
   // Shared: Get a single task by ID
   // ──────────────────────────────────────────────
 
@@ -409,7 +466,8 @@ export class TasksService {
       include: {
         assignee: { select: { id: true, fullName: true, email: true, role: true } },
         creator: { select: { id: true, fullName: true, email: true } },
-        team: { select: { id: true, name: true, companyId: true } },
+        team: { select: { id: true, name: true, companyId: true, departmentId: true } },
+        project: { select: { id: true, name: true } },
       },
     });
 
@@ -438,6 +496,25 @@ export class TasksService {
       }
     }
 
+    // Department heads can view tasks in teams within their department
+    if (role === Role.DEPARTMENT_HEAD) {
+      const teamDeptId = (task.team as any).departmentId;
+      if (teamDeptId) {
+        const dept = await this.prisma.department.findFirst({
+          where: { id: teamDeptId, headId: userId },
+        });
+        if (!dept) {
+          throw new ForbiddenException(
+            "You can only view tasks in your department's teams",
+          );
+        }
+      } else {
+        throw new ForbiddenException(
+          "This task's team is not assigned to any department",
+        );
+      }
+    }
+
     return task;
   }
 
@@ -463,3 +540,4 @@ export class TasksService {
     return where;
   }
 }
+

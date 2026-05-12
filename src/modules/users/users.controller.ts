@@ -31,14 +31,14 @@ export class UsersController {
   // ──────────────────────────────────────────────
 
   /** Any user: view their own profile. */
-  @Roles(Role.CEO, Role.ASSISTANT, Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Roles(Role.CEO, Role.ASSISTANT, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE)
   @Get("profile")
   getProfile(@Request() req) {
     return this.usersService.getProfile(req.user.userId);
   }
 
   /** Any user: update their name or password. */
-  @Roles(Role.CEO, Role.ASSISTANT, Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Roles(Role.CEO, Role.ASSISTANT, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE)
   @Patch("profile")
   updateProfile(@Body() dto: UpdateProfileDto, @Request() req) {
     return this.usersService.updateProfile(req.user.userId, dto);

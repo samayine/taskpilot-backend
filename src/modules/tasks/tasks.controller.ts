@@ -35,8 +35,8 @@ export class TasksController {
   // Team Lead endpoints
   // ──────────────────────────────────────────────
 
-  /** Team Lead (or CEO acting as lead) creates and assigns a task. */
-  @Roles(Role.CEO, Role.TEAM_LEAD)
+  /** Team Lead, Department Head (or CEO acting as lead) creates and assigns a task. */
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
   @Post()
   create(@Body() dto: CreateTaskDto, @Request() req) {
     return this.tasksService.createTask(
@@ -47,7 +47,7 @@ export class TasksController {
   }
 
   /** Team Lead (or CEO) views all tasks across their teams (filterable). */
-  @Roles(Role.CEO, Role.TEAM_LEAD)
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
   @Get("team")
   findTeamTasks(@Query() filters: TaskFilterDto, @Request() req) {
     return this.tasksService.findTeamTasks(
@@ -57,8 +57,8 @@ export class TasksController {
     );
   }
 
-  /** Team Lead (or CEO) reviews a submitted task (APPROVE or REJECT). */
-  @Roles(Role.CEO, Role.TEAM_LEAD)
+  /** Team Lead, Department Head (or CEO) reviews a submitted task (APPROVE or REJECT). */
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
   @Patch(":id/review")
   review(
     @Param("id") taskId: string,
@@ -66,6 +66,18 @@ export class TasksController {
     @Request() req,
   ) {
     return this.tasksService.reviewTask(taskId, dto, req.user.userId, req.user.companyId);
+  }
+
+  /** DEPARTMENT_HEAD: view all tasks across teams in their department. */
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD)
+  @Get("department")
+  findDepartmentTasks(@Query() filters: TaskFilterDto, @Request() req) {
+    return this.tasksService.findDepartmentTasks(
+      req.user.userId,
+      req.user.companyId,
+      req.user.role,
+      filters,
+    );
   }
 
   // ──────────────────────────────────────────────
@@ -95,14 +107,14 @@ export class TasksController {
   // ──────────────────────────────────────────────
 
   /** Any authenticated user can view a single task (scoped by their role). */
-  @Roles(Role.CEO, Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE)
   @Get(":id")
   findOne(@Param("id") taskId: string, @Request() req) {
     return this.tasksService.findOne(taskId, req.user.userId, req.user.role, req.user.companyId);
   }
 
-  /** CEO or Team Lead can view a task's full change history. */
-  @Roles(Role.CEO, Role.TEAM_LEAD)
+  /** CEO, Department Head, or Team Lead can view a task's full change history. */
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
   @Get(":id/history")
   getHistory(@Param("id") taskId: string) {
     return this.taskHistoryService.getHistoryForTask(taskId);
