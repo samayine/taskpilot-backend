@@ -48,6 +48,7 @@ async function bootstrap() {
     .addTag("Comments", "Task collaboration comments")
     .addTag("Departments", "Department CRUD and department head management")
     .addTag("Projects", "Cross-department project management and dashboards")
+    .addTag("Chat", "Real-time chat channels and messaging")
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

@@ -13,6 +13,7 @@ import { CompanyModule } from "./modules/company/company.module";
 import { CommentsModule } from "./modules/comments/comments.module";
 import { DepartmentsModule } from "./modules/departments/departments.module";
 import { ProjectsModule } from "./modules/projects/projects.module";
+import { ChatModule } from "./modules/chat/chat.module";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { APP_GUARD } from "@nestjs/core";
 
@@ -40,6 +41,7 @@ import { APP_GUARD } from "@nestjs/core";
     CommentsModule,
     DepartmentsModule,
     ProjectsModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [
