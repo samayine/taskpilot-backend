@@ -16,7 +16,7 @@ import { AddTeamMemberDto } from "./dto/add-team-member.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { RolesGuard } from "src/common/guards/roles.guard";
 import { Roles } from "src/common/decorators/roles.decorator";
-import { ApiTags, ApiBearerAuth, ApiQuery } from "@nestjs/swagger";
+import { ApiTags, ApiBearerAuth, ApiQuery, ApiOperation } from "@nestjs/swagger";
 import { Role } from "@prisma/client";
 
 @ApiTags("Teams")
@@ -27,6 +27,7 @@ export class TeamsController {
   constructor(private readonly teamsService: TeamsService) {}
 
   /** CEO creates a new team. */
+  @ApiOperation({ summary: "CEO creates a new team." })
   @Roles(Role.CEO)
   @Post()
   create(@Body() dto: CreateTeamDto, @Request() req) {
@@ -34,6 +35,7 @@ export class TeamsController {
   }
 
   /** CEO or Team Lead can view all teams (filterable by departmentId). */
+  @ApiOperation({ summary: "CEO or Team Lead can view all teams (filterable by departmentId)." })
   @ApiQuery({ name: "departmentId", required: false, description: "Filter teams by department ID" })
   @Roles(Role.CEO, Role.TEAM_LEAD, Role.DEPARTMENT_HEAD)
   @Get()
@@ -46,6 +48,7 @@ export class TeamsController {
   }
 
   /** CEO or Team Lead can view a single team. */
+  @ApiOperation({ summary: "CEO or Team Lead can view a single team." })
   @Roles(Role.CEO, Role.TEAM_LEAD)
   @Get(":id")
   findOne(@Param("id") id: string, @Request() req) {
@@ -53,6 +56,7 @@ export class TeamsController {
   }
 
   /** CEO adds a member to a team. */
+  @ApiOperation({ summary: "CEO adds a member to a team." })
   @Roles(Role.CEO)
   @Post(":id/members")
   addMember(
@@ -64,6 +68,7 @@ export class TeamsController {
   }
 
   /** CEO removes a member from a team. */
+  @ApiOperation({ summary: "CEO removes a member from a team." })
   @Roles(Role.CEO)
   @Delete(":id/members/:userId")
   removeMember(

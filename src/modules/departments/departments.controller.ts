@@ -9,7 +9,7 @@ import {
   Request,
   UseGuards,
 } from "@nestjs/common";
-import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
+import { ApiTags, ApiBearerAuth, ApiOperation } from "@nestjs/swagger";
 import { DepartmentsService } from "./departments.service";
 import { CreateDepartmentDto } from "./dto/create-department.dto";
 import { UpdateDepartmentDto } from "./dto/update-department.dto";
@@ -29,6 +29,7 @@ export class DepartmentsController {
   constructor(private readonly departmentsService: DepartmentsService) {}
 
   /** CEO creates a new department. */
+  @ApiOperation({ summary: "CEO creates a new department." })
   @Roles(Role.CEO)
   @Post()
   create(@Body() dto: CreateDepartmentDto, @Request() req) {
@@ -40,6 +41,7 @@ export class DepartmentsController {
   }
 
   /** CEO sees all departments; DEPARTMENT_HEAD sees only their own. */
+  @ApiOperation({ summary: "CEO sees all departments; DEPARTMENT_HEAD sees only their own." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD)
   @Get()
   findAll(@Query() pagination: PaginationDto, @Request() req) {
@@ -52,6 +54,7 @@ export class DepartmentsController {
   }
 
   /** CEO or DEPARTMENT_HEAD views a single department with teams. */
+  @ApiOperation({ summary: "CEO or DEPARTMENT_HEAD views a single department with teams." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD)
   @Get(":id")
   findOne(@Param("id") id: string, @Request() req) {
@@ -64,6 +67,7 @@ export class DepartmentsController {
   }
 
   /** CEO updates department name/description. */
+  @ApiOperation({ summary: "CEO updates department name/description." })
   @Roles(Role.CEO)
   @Patch(":id")
   update(
@@ -75,6 +79,7 @@ export class DepartmentsController {
   }
 
   /** CEO assigns/changes a department head. */
+  @ApiOperation({ summary: "CEO assigns/changes a department head." })
   @Roles(Role.CEO)
   @Patch(":id/head")
   assignHead(
@@ -91,6 +96,7 @@ export class DepartmentsController {
   }
 
   /** DEPARTMENT_HEAD creates a team within their department. */
+  @ApiOperation({ summary: "DEPARTMENT_HEAD creates a team within their department." })
   @Roles(Role.DEPARTMENT_HEAD)
   @Post(":id/teams")
   createTeam(
@@ -107,6 +113,7 @@ export class DepartmentsController {
   }
 
   /** CEO or DEPARTMENT_HEAD lists employees across all teams in a department. */
+  @ApiOperation({ summary: "CEO or DEPARTMENT_HEAD lists employees across all teams in a department." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD)
   @Get(":id/employees")
   getEmployees(

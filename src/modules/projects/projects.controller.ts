@@ -10,7 +10,7 @@ import {
   Request,
   UseGuards,
 } from "@nestjs/common";
-import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
+import { ApiTags, ApiBearerAuth, ApiOperation } from "@nestjs/swagger";
 import { ProjectsService } from "./projects.service";
 import { CreateProjectDto } from "./dto/create-project.dto";
 import { UpdateProjectDto } from "./dto/update-project.dto";
@@ -28,6 +28,7 @@ export class ProjectsController {
   constructor(private readonly projectsService: ProjectsService) {}
 
   /** CEO creates a cross-department project. */
+  @ApiOperation({ summary: "CEO creates a cross-department project." })
   @Roles(Role.CEO)
   @Post()
   create(@Body() dto: CreateProjectDto, @Request() req) {
@@ -39,6 +40,7 @@ export class ProjectsController {
   }
 
   /** List projects (scoped by role). */
+  @ApiOperation({ summary: "List projects (scoped by role)." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
   @Get()
   findAll(@Query() pagination: PaginationDto, @Request() req) {
@@ -51,6 +53,7 @@ export class ProjectsController {
   }
 
   /** Get a single project with department breakdown. */
+  @ApiOperation({ summary: "Get a single project with department breakdown." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
   @Get(":id")
   findOne(@Param("id") id: string, @Request() req) {
@@ -58,6 +61,7 @@ export class ProjectsController {
   }
 
   /** CEO updates project status/details. */
+  @ApiOperation({ summary: "CEO updates project status/details." })
   @Roles(Role.CEO)
   @Patch(":id")
   update(
@@ -69,6 +73,7 @@ export class ProjectsController {
   }
 
   /** CEO adds a department to a project. */
+  @ApiOperation({ summary: "CEO adds a department to a project." })
   @Roles(Role.CEO)
   @Post(":id/departments/:deptId")
   addDepartment(
@@ -80,6 +85,7 @@ export class ProjectsController {
   }
 
   /** CEO removes a department from a project. */
+  @ApiOperation({ summary: "CEO removes a department from a project." })
   @Roles(Role.CEO)
   @Delete(":id/departments/:deptId")
   removeDepartment(
@@ -91,6 +97,7 @@ export class ProjectsController {
   }
 
   /** Get tasks for a project (dept heads see only their department's tasks). */
+  @ApiOperation({ summary: "Get tasks for a project (dept heads see only their department's tasks)." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
   @Get(":id/tasks")
   getProjectTasks(
@@ -108,6 +115,7 @@ export class ProjectsController {
   }
 
   /** Per-department progress dashboard for a project. */
+  @ApiOperation({ summary: "Per-department progress dashboard for a project." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD)
   @Get(":id/dashboard")
   getDashboard(@Param("id") id: string, @Request() req) {

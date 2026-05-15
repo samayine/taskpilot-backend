@@ -11,7 +11,7 @@ import { UpdateCompanyDto } from "./dto/update-company.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { RolesGuard } from "src/common/guards/roles.guard";
 import { Roles } from "src/common/decorators/roles.decorator";
-import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
+import { ApiTags, ApiBearerAuth, ApiOperation } from "@nestjs/swagger";
 import { Role } from "@prisma/client";
 
 @ApiTags("Company")
@@ -22,6 +22,7 @@ export class CompanyController {
   constructor(private readonly companyService: CompanyService) {}
 
   /** CEO views company profile. */
+  @ApiOperation({ summary: "CEO views company profile." })
   @Roles(Role.CEO)
   @Get()
   getProfile(@Request() req) {
@@ -29,6 +30,7 @@ export class CompanyController {
   }
 
   /** CEO updates company details. */
+  @ApiOperation({ summary: "CEO updates company details." })
   @Roles(Role.CEO)
   @Patch()
   update(@Body() dto: UpdateCompanyDto, @Request() req) {
@@ -36,6 +38,7 @@ export class CompanyController {
   }
 
   /** CEO dashboard — aggregated company statistics. */
+  @ApiOperation({ summary: "CEO dashboard — aggregated company statistics." })
   @Roles(Role.CEO)
   @Get("dashboard")
   getDashboard(@Request() req) {

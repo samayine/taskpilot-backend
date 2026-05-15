@@ -8,7 +8,7 @@ import {
   Request,
   UseGuards,
 } from "@nestjs/common";
-import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
+import { ApiTags, ApiBearerAuth, ApiOperation } from "@nestjs/swagger";
 import { CommentsService } from "./comments.service";
 import { CreateCommentDto } from "./dto/create-comment.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
@@ -25,6 +25,7 @@ export class CommentsController {
   constructor(private readonly commentsService: CommentsService) {}
 
   /** Add a comment to a task. */
+  @ApiOperation({ summary: "Add a comment to a task." })
   @Roles(Role.TEAM_LEAD, Role.EMPLOYEE)
   @Post()
   create(
@@ -36,6 +37,7 @@ export class CommentsController {
   }
 
   /** Get all comments on a task (paginated). */
+  @ApiOperation({ summary: "Get all comments on a task (paginated)." })
   @Roles(Role.TEAM_LEAD, Role.EMPLOYEE)
   @Get()
   findAll(

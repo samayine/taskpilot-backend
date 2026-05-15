@@ -9,7 +9,7 @@ import {
   Request,
   UseGuards,
 } from "@nestjs/common";
-import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
+import { ApiTags, ApiBearerAuth, ApiOperation } from "@nestjs/swagger";
 import { DocumentsService } from "./documents.service";
 import { UploadDocumentDto } from "./dto/upload-document.dto";
 import { UpdateVisibilityDto } from "./dto/update-visibility.dto";
@@ -28,6 +28,7 @@ export class DocumentsController {
   constructor(private readonly documentsService: DocumentsService) {}
 
   /** Any authenticated user registers a document (metadata + URL). */
+  @ApiOperation({ summary: "Any authenticated user registers a document (metadata + URL)." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
   @Post()
   create(@Body() dto: UploadDocumentDto, @Request() req) {
@@ -39,6 +40,7 @@ export class DocumentsController {
   }
 
   /** List documents the user can access (visibility-filtered). */
+  @ApiOperation({ summary: "List documents the user can access (visibility-filtered)." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
   @Get()
   findAll(@Query() pagination: PaginationDto, @Request() req) {
@@ -51,6 +53,7 @@ export class DocumentsController {
   }
 
   /** Get a single document (checks visibility rules). */
+  @ApiOperation({ summary: "Get a single document (checks visibility rules)." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
   @Get(":id")
   findOne(@Param("id") id: string, @Request() req) {
@@ -63,6 +66,7 @@ export class DocumentsController {
   }
 
   /** Owner or CEO changes document visibility. */
+  @ApiOperation({ summary: "Owner or CEO changes document visibility." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
   @Patch(":id/visibility")
   updateVisibility(
@@ -80,6 +84,7 @@ export class DocumentsController {
   }
 
   /** Owner or CEO grants access to specific users/teams/departments. */
+  @ApiOperation({ summary: "Owner or CEO grants access to specific users/teams/departments." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
   @Post(":id/access")
   grantAccess(

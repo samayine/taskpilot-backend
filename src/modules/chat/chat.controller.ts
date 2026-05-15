@@ -8,7 +8,7 @@ import {
   Request,
   UseGuards,
 } from "@nestjs/common";
-import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
+import { ApiTags, ApiBearerAuth, ApiOperation } from "@nestjs/swagger";
 import { ChatService } from "./chat.service";
 import { CreateChannelDto } from "./dto/create-channel.dto";
 import { SendMessageDto } from "./dto/send-message.dto";
@@ -27,6 +27,7 @@ export class ChatController {
   constructor(private readonly chatService: ChatService) {}
 
   /** CEO, DEPARTMENT_HEAD, or TEAM_LEAD creates a chat channel. */
+  @ApiOperation({ summary: "CEO, DEPARTMENT_HEAD, or TEAM_LEAD creates a chat channel." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
   @Post("channels")
   createChannel(@Body() dto: CreateChannelDto, @Request() req) {
@@ -38,6 +39,7 @@ export class ChatController {
   }
 
   /** Any authenticated user lists channels they belong to. */
+  @ApiOperation({ summary: "Any authenticated user lists channels they belong to." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
   @Get("channels")
   findChannels(@Query() pagination: PaginationDto, @Request() req) {
@@ -49,6 +51,7 @@ export class ChatController {
   }
 
   /** Channel member gets paginated messages. */
+  @ApiOperation({ summary: "Channel member gets paginated messages." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
   @Get("channels/:id/messages")
   getMessages(
@@ -65,6 +68,7 @@ export class ChatController {
   }
 
   /** Channel member sends a message (REST fallback — prefer WebSocket). */
+  @ApiOperation({ summary: "Channel member sends a message (REST fallback — prefer WebSocket)." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
   @Post("channels/:id/messages")
   sendMessage(
@@ -81,6 +85,7 @@ export class ChatController {
   }
 
   /** Channel member adds another user to the channel. */
+  @ApiOperation({ summary: "Channel member adds another user to the channel." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
   @Post("channels/:id/members")
   addMember(

@@ -9,7 +9,7 @@ import {
   Request,
   UseGuards,
 } from "@nestjs/common";
-import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
+import { ApiTags, ApiBearerAuth, ApiOperation } from "@nestjs/swagger";
 import { UsersService } from "./users.service";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
@@ -31,6 +31,7 @@ export class UsersController {
   // ──────────────────────────────────────────────
 
   /** Any user: view their own profile. */
+  @ApiOperation({ summary: "Any user: view their own profile." })
   @Roles(Role.CEO, Role.ASSISTANT, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE)
   @Get("profile")
   getProfile(@Request() req) {
@@ -38,6 +39,7 @@ export class UsersController {
   }
 
   /** Any user: update their name or password. */
+  @ApiOperation({ summary: "Any user: update their name or password." })
   @Roles(Role.CEO, Role.ASSISTANT, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE)
   @Patch("profile")
   updateProfile(@Body() dto: UpdateProfileDto, @Request() req) {
@@ -52,6 +54,7 @@ export class UsersController {
    * CEO or ASSISTANT: create a new employee or team lead account.
    * Only CEO can create ASSISTANT accounts.
    */
+  @ApiOperation({ summary: "CEO or ASSISTANT: create a new employee or team lead account.     Only CEO can create ASSISTANT accounts." })
   @Roles(Role.CEO, Role.ASSISTANT)
   @Post()
   createUser(@Body() createUserDto: CreateUserDto, @Request() req) {
@@ -59,6 +62,7 @@ export class UsersController {
   }
 
   /** CEO or ASSISTANT: list all users in the company (paginated). */
+  @ApiOperation({ summary: "CEO or ASSISTANT: list all users in the company (paginated)." })
   @Roles(Role.CEO, Role.ASSISTANT)
   @Get()
   findAll(@Query() pagination: PaginationDto, @Request() req) {
@@ -66,6 +70,7 @@ export class UsersController {
   }
 
   /** CEO or ASSISTANT: block a user (prevents login). */
+  @ApiOperation({ summary: "CEO or ASSISTANT: block a user (prevents login)." })
   @Roles(Role.CEO, Role.ASSISTANT)
   @Patch(":id/block")
   blockUser(@Param("id") userId: string, @Request() req) {
@@ -73,6 +78,7 @@ export class UsersController {
   }
 
   /** CEO or ASSISTANT: unblock a user. */
+  @ApiOperation({ summary: "CEO or ASSISTANT: unblock a user." })
   @Roles(Role.CEO, Role.ASSISTANT)
   @Patch(":id/unblock")
   unblockUser(@Param("id") userId: string, @Request() req) {
