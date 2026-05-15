@@ -34,17 +34,17 @@ export class CreateUserDto {
   password?: string;
 
   @ApiProperty({
-    enum: [Role.ASSISTANT, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE],
+    enum: [Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE],
     example: "EMPLOYEE",
   })
-  @IsIn([Role.ASSISTANT, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE], {
-    message: "Role must be ASSISTANT, DEPARTMENT_HEAD, TEAM_LEAD, or EMPLOYEE",
+  @IsIn([Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE], {
+    message: "Role must be DEPARTMENT_HEAD, TEAM_LEAD, or EMPLOYEE",
   })
   role: Role;
 
   @ApiPropertyOptional({
     example: "123e4567-e89b-12d3-a456-426614174000",
-    description: "Department to assign this user to (for DEPARTMENT_HEAD role)",
+    description: "Home department for this user (required for EMPLOYEE, TEAM_LEAD, DEPARTMENT_HEAD)",
   })
   @IsUUID()
   @IsOptional()

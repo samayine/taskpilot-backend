@@ -12,6 +12,7 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation } from "@nestjs/swagger";
 import { UsersService } from "./users.service";
 import { CreateUserDto } from "./dto/create-user.dto";
+import { CreateAssistantDto } from "./dto/create-assistant.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { RolesGuard } from "src/common/guards/roles.guard";
 import { Roles } from "src/common/decorators/roles.decorator";
@@ -47,14 +48,27 @@ export class UsersController {
   }
 
   // ──────────────────────────────────────────────
-  // CEO-only: user management
+  // CEO-only: assistant creation
+  // ──────────────────────────────────────────────
+
+  /** CEO: create a new assistant account. */
+  @ApiOperation({ summary: "CEO: create a new assistant account." })
+  @Roles(Role.CEO)
+  @Post("assistant")
+  createAssistant(@Body() dto: CreateAssistantDto, @Request() req) {
+    return this.usersService.createAssistant(dto, req.user.companyId);
+  }
+
+  // ──────────────────────────────────────────────
+  // CEO or ASSISTANT: user management
   // ──────────────────────────────────────────────
 
   /**
-   * CEO or ASSISTANT: create a new employee or team lead account.
-   * Only CEO can create ASSISTANT accounts.
+   * CEO or ASSISTANT: create a new DEPARTMENT_HEAD, TEAM_LEAD, or EMPLOYEE account.
+   * Only CEO can create DEPARTMENT_HEAD accounts.
+   * departmentId is required — the user is assigned to a home department.
    */
-  @ApiOperation({ summary: "CEO or ASSISTANT: create a new employee or team lead account.     Only CEO can create ASSISTANT accounts." })
+  @ApiOperation({ summary: "CEO or ASSISTANT: create a new DEPARTMENT_HEAD, TEAM_LEAD, or EMPLOYEE. departmentId required." })
   @Roles(Role.CEO, Role.ASSISTANT)
   @Post()
   createUser(@Body() createUserDto: CreateUserDto, @Request() req) {

@@ -7,6 +7,7 @@ import {
 import { Role, User } from "@prisma/client";
 import { PrismaService } from "src/prisma/prisma.service";
 import { CreateUserDto } from "./dto/create-user.dto";
+import { CreateAssistantDto } from "./dto/create-assistant.dto";
 import { UpdateProfileDto } from "./dto/update-profile.dto";
 import { PaginationDto } from "src/common/dto/pagination.dto";
 import { paginateArgs, paginate } from "src/common/helpers/pagination.helper";
@@ -17,18 +18,83 @@ import * as crypto from "crypto";
 export class UsersService {
   constructor(private readonly prismaService: PrismaService) {}
 
+  // ──────────────────────────────────────────────
+  // CEO-only: create an assistant account
+  // ──────────────────────────────────────────────
+
+  async createAssistant(dto: CreateAssistantDto, companyId: string) {
+    const existingEmail = await this.prismaService.user.findUnique({
+      where: { email: dto.email },
+    });
+
+    if (existingEmail) {
+      throw new ConflictException("Email already in use");
+    }
+
+    // Auto-generate password if not provided
+    let rawPassword = dto.password;
+    let mustChangePassword = false;
+
+    if (!rawPassword) {
+      rawPassword = crypto.randomBytes(8).toString("hex");
+      mustChangePassword = true;
+    }
+
+    const hashedPassword = await bcrypt.hash(rawPassword, 10);
+
+    const user = await this.prismaService.user.create({
+      data: {
+        fullName: dto.fullName,
+        email: dto.email,
+        password: hashedPassword,
+        role: Role.ASSISTANT,
+        mustChangePassword,
+        companyId,
+      },
+    });
+
+    const { password, ...safeUser } = user;
+
+    return {
+      ...safeUser,
+      ...(mustChangePassword ? { temporaryPassword: rawPassword } : {}),
+    };
+  }
+
+  // ──────────────────────────────────────────────
+  // CEO or ASSISTANT: create DEPARTMENT_HEAD, TEAM_LEAD, or EMPLOYEE
+  // ──────────────────────────────────────────────
+
   async createUser(
     createUserDto: CreateUserDto,
     companyId: string,
     callerRole: Role,
   ) {
-    // Only CEO can create ASSISTANT or DEPARTMENT_HEAD accounts
+    // Only CEO can create DEPARTMENT_HEAD accounts
     if (
-      (createUserDto.role === Role.ASSISTANT || createUserDto.role === Role.DEPARTMENT_HEAD) &&
+      createUserDto.role === Role.DEPARTMENT_HEAD &&
       callerRole !== Role.CEO
     ) {
       throw new BadRequestException(
-        'Only the CEO can create ASSISTANT or DEPARTMENT_HEAD accounts',
+        'Only the CEO can create DEPARTMENT_HEAD accounts',
+      );
+    }
+
+    // Enforce departmentId for all roles handled by this endpoint
+    if (!createUserDto.departmentId) {
+      throw new BadRequestException(
+        'departmentId is required when creating EMPLOYEE, TEAM_LEAD, or DEPARTMENT_HEAD accounts',
+      );
+    }
+
+    // Validate that the department exists and belongs to the same company
+    const department = await this.prismaService.department.findUnique({
+      where: { id: createUserDto.departmentId },
+    });
+
+    if (!department || department.companyId !== companyId) {
+      throw new NotFoundException(
+        'Department not found or does not belong to your company',
       );
     }
 
@@ -59,6 +125,10 @@ export class UsersService {
         password: hashedPassword,
         mustChangePassword,
         companyId,
+        departmentId,
+      },
+      include: {
+        department: { select: { id: true, name: true } },
       },
     });
 
@@ -88,6 +158,7 @@ export class UsersService {
           isBlocked: true,
           status: true,
           createdAt: true,
+          department: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: "desc" },
         ...paginateArgs(pagination),
@@ -169,6 +240,7 @@ export class UsersService {
         status: true,
         createdAt: true,
         company: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true } },
       },
     });
 
