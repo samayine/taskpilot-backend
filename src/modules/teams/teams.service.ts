@@ -24,7 +24,29 @@ export class TeamsService {
   // CEO: create a new team
   // ──────────────────────────────────────────────
 
-  async createTeam(dto: CreateTeamDto, companyId: string) {
+  async createTeam(
+    dto: CreateTeamDto,
+    companyId: string,
+    callerRole: Role,
+    callerId: string,
+  ) {
+    // DEPARTMENT_HEAD must supply a departmentId that they actually head
+    if (callerRole === Role.DEPARTMENT_HEAD) {
+      if (!dto.departmentId) {
+        throw new BadRequestException(
+          "Department heads must specify a department when creating a team",
+        );
+      }
+      const dept = await this.prisma.department.findUnique({
+        where: { id: dto.departmentId },
+      });
+      if (!dept || dept.companyId !== companyId || dept.headId !== callerId) {
+        throw new ForbiddenException(
+          "You can only create teams in departments you head",
+        );
+      }
+    }
+
     const teamLead = await this.prisma.user.findUnique({
       where: { id: dto.teamLeadId },
     });
@@ -37,9 +59,13 @@ export class TeamsService {
       throw new BadRequestException("Team lead does not belong to your company");
     }
 
-    if (teamLead.role !== Role.TEAM_LEAD && teamLead.role !== Role.CEO) {
+    if (
+      teamLead.role !== Role.TEAM_LEAD &&
+      teamLead.role !== Role.CEO &&
+      teamLead.role !== Role.DEPARTMENT_HEAD
+    ) {
       throw new BadRequestException(
-        "Designated user must have the TEAM_LEAD or CEO role",
+        "Designated user must have the TEAM_LEAD, CEO, or DEPARTMENT_HEAD role",
       );
     }
 
@@ -58,7 +84,7 @@ export class TeamsService {
     });
 
     await this.activityLog.logAction(
-      team.teamLead.id,
+      callerId,
       companyId,
       "TEAM_CREATED",
       "Team",

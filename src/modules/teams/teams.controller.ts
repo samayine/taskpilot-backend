@@ -48,15 +48,20 @@ export class TeamsController {
   constructor(private readonly teamsService: TeamsService) {}
 
   // ─────────────────────────────────────────────
-  // CEO: create team
+  // CEO / DEPT_HEAD: create team
   // ─────────────────────────────────────────────
 
-  /** CEO creates a new team company-wide. */
-  @ApiOperation({ summary: "CEO creates a new team." })
-  @Roles(Role.CEO)
+  /** CEO or DEPARTMENT_HEAD creates a team (dept-heads scoped to their dept). */
+  @ApiOperation({ summary: "CEO or DEPARTMENT_HEAD creates a new team." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD)
   @Post()
   create(@Body() dto: CreateTeamDto, @Request() req) {
-    return this.teamsService.createTeam(dto, req.user.companyId);
+    return this.teamsService.createTeam(
+      dto,
+      req.user.companyId,
+      req.user.role,
+      req.user.userId,
+    );
   }
 
   // ─────────────────────────────────────────────
