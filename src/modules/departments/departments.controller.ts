@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -107,6 +108,18 @@ export class DepartmentsController {
     return this.departmentsService.createTeamInDepartment(
       id,
       dto,
+      req.user.companyId,
+      req.user.userId,
+    );
+  }
+
+  /** CEO: permanently delete a department. */
+  @ApiOperation({ summary: "CEO: delete a department." })
+  @Roles(Role.CEO)
+  @Delete(":id")
+  deleteDepartment(@Param("id") id: string, @Request() req) {
+    return this.departmentsService.deleteDepartment(
+      id,
       req.user.companyId,
       req.user.userId,
     );

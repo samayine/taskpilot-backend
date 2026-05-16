@@ -345,4 +345,35 @@ export class DepartmentsService {
 
     return paginate(data, total, pagination);
   }
+
+  // ──────────────────────────────────────────────
+  // CEO: Delete a department
+  // ──────────────────────────────────────────────
+
+  async deleteDepartment(
+    departmentId: string,
+    companyId: string,
+    userId: string,
+  ) {
+    const department = await this.prisma.department.findUnique({
+      where: { id: departmentId },
+    });
+
+    if (!department || department.companyId !== companyId) {
+      throw new NotFoundException("Department not found");
+    }
+
+    await this.prisma.department.delete({ where: { id: departmentId } });
+
+    await this.activityLog.logAction(
+      userId,
+      companyId,
+      "DEPARTMENT_DELETED",
+      "Department",
+      departmentId,
+      { name: department.name },
+    );
+
+    return { message: `Department "${department.name}" has been deleted` };
+  }
 }

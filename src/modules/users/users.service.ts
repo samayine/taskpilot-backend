@@ -1,10 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { Role, User } from "@prisma/client";
+import { Prisma, Role, User } from "@prisma/client";
 import { PrismaService } from "src/prisma/prisma.service";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { CreateAssistantDto } from "./dto/create-assistant.dto";
@@ -31,7 +32,6 @@ export class UsersService {
       throw new ConflictException("Email already in use");
     }
 
-    // Auto-generate password if not provided
     let rawPassword = dto.password;
     let mustChangePassword = false;
 
@@ -70,31 +70,28 @@ export class UsersService {
     companyId: string,
     callerRole: Role,
   ) {
-    // Only CEO can create DEPARTMENT_HEAD accounts
     if (
       createUserDto.role === Role.DEPARTMENT_HEAD &&
       callerRole !== Role.CEO
     ) {
       throw new BadRequestException(
-        'Only the CEO can create DEPARTMENT_HEAD accounts',
+        "Only the CEO can create DEPARTMENT_HEAD accounts",
       );
     }
 
-    // Enforce departmentId for all roles handled by this endpoint
     if (!createUserDto.departmentId) {
       throw new BadRequestException(
-        'departmentId is required when creating EMPLOYEE, TEAM_LEAD, or DEPARTMENT_HEAD accounts',
+        "departmentId is required when creating EMPLOYEE, TEAM_LEAD, or DEPARTMENT_HEAD accounts",
       );
     }
 
-    // Validate that the department exists and belongs to the same company
     const department = await this.prismaService.department.findUnique({
       where: { id: createUserDto.departmentId },
     });
 
     if (!department || department.companyId !== companyId) {
       throw new NotFoundException(
-        'Department not found or does not belong to your company',
+        "Department not found or does not belong to your company",
       );
     }
 
@@ -106,12 +103,11 @@ export class UsersService {
       throw new ConflictException("Email already in use");
     }
 
-    // Auto-generate password if not provided (ASSISTANT creating employees)
     let rawPassword = createUserDto.password;
     let mustChangePassword = false;
 
     if (!rawPassword) {
-      rawPassword = crypto.randomBytes(8).toString("hex"); // 16 char random password
+      rawPassword = crypto.randomBytes(8).toString("hex");
       mustChangePassword = true;
     }
 
@@ -134,18 +130,37 @@ export class UsersService {
 
     const { password, ...safeUser } = user;
 
-    // Return temp password so ASSISTANT can share it with the employee
     return {
       ...safeUser,
       ...(mustChangePassword ? { temporaryPassword: rawPassword } : {}),
     };
   }
 
-  /**
-   * CEO: List all users in the company (paginated).
-   */
-  async findAllByCompany(companyId: string, pagination: PaginationDto) {
-    const where = { companyId };
+  // ──────────────────────────────────────────────
+  // CEO or ASSISTANT: list users (paginated + filtered)
+  // ──────────────────────────────────────────────
+
+  async findAllByCompany(
+    companyId: string,
+    pagination: PaginationDto,
+    filters: { role?: Role; isBlocked?: boolean; search?: string },
+  ) {
+    const where: Prisma.UserWhereInput = { companyId };
+
+    if (filters.role) {
+      where.role = filters.role;
+    }
+
+    if (filters.isBlocked !== undefined) {
+      where.isBlocked = filters.isBlocked;
+    }
+
+    if (filters.search) {
+      where.OR = [
+        { fullName: { contains: filters.search, mode: "insensitive" } },
+        { email: { contains: filters.search, mode: "insensitive" } },
+      ];
+    }
 
     const [users, total] = await Promise.all([
       this.prismaService.user.findMany({
@@ -158,7 +173,7 @@ export class UsersService {
           isBlocked: true,
           status: true,
           createdAt: true,
-          department: { select: { id: true, name: true } },
+          departmentId: true,
         },
         orderBy: { createdAt: "desc" },
         ...paginateArgs(pagination),
@@ -169,10 +184,107 @@ export class UsersService {
     return paginate(users, total, pagination);
   }
 
-  /**
-   * CEO: Block a user (prevent login).
-   */
-  async blockUser(userId: string, companyId: string) {
+  // ──────────────────────────────────────────────
+  // CEO or ASSISTANT: admin-update another user's profile
+  // CEO can change fullName + role
+  // ASSISTANT can change fullName only (not role, not other ASSISTANTs)
+  // ──────────────────────────────────────────────
+
+  async adminUpdateUser(
+    targetId: string,
+    companyId: string,
+    callerRole: Role,
+    dto: { fullName?: string; role?: Role },
+  ) {
+    const target = await this.prismaService.user.findUnique({
+      where: { id: targetId },
+    });
+
+    if (!target || target.companyId !== companyId) {
+      throw new NotFoundException("User not found");
+    }
+
+    // Cannot edit the CEO account
+    if (target.role === Role.CEO) {
+      throw new ForbiddenException("CEO account cannot be edited");
+    }
+
+    // ASSISTANT cannot edit another ASSISTANT
+    if (callerRole === Role.ASSISTANT && target.role === Role.ASSISTANT) {
+      throw new ForbiddenException(
+        "Assistants cannot edit other assistant accounts",
+      );
+    }
+
+    // ASSISTANT cannot change roles
+    if (callerRole === Role.ASSISTANT && dto.role !== undefined) {
+      throw new ForbiddenException("Assistants cannot change user roles");
+    }
+
+    const data: Prisma.UserUpdateInput = {};
+
+    if (dto.fullName) {
+      data.fullName = dto.fullName;
+    }
+
+    if (dto.role !== undefined && callerRole === Role.CEO) {
+      if (dto.role === Role.CEO) {
+        throw new BadRequestException("Cannot assign the CEO role");
+      }
+      data.role = dto.role;
+    }
+
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException("No fields to update");
+    }
+
+    return this.prismaService.user.update({
+      where: { id: targetId },
+      data,
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        isBlocked: true,
+        createdAt: true,
+        departmentId: true,
+      },
+    });
+  }
+
+  // ──────────────────────────────────────────────
+  // CEO-only: delete a user
+  // ──────────────────────────────────────────────
+
+  async deleteUser(targetId: string, companyId: string, callerId: string) {
+    const target = await this.prismaService.user.findUnique({
+      where: { id: targetId },
+    });
+
+    if (!target || target.companyId !== companyId) {
+      throw new NotFoundException("User not found");
+    }
+
+    if (target.role === Role.CEO) {
+      throw new ForbiddenException("Cannot delete the CEO account");
+    }
+
+    if (target.id === callerId) {
+      throw new BadRequestException("Cannot delete your own account");
+    }
+
+    await this.prismaService.user.delete({ where: { id: targetId } });
+
+    return { message: `User ${target.fullName} has been deleted` };
+  }
+
+  // ──────────────────────────────────────────────
+  // CEO or ASSISTANT: block / unblock
+  // CEO can block ASSISTANT; ASSISTANT cannot block ASSISTANT
+  // ──────────────────────────────────────────────
+
+  async blockUser(userId: string, companyId: string, callerRole: Role) {
     const user = await this.prismaService.user.findUnique({
       where: { id: userId },
     });
@@ -181,8 +293,14 @@ export class UsersService {
       throw new NotFoundException("User not found");
     }
 
-    if (user.role === Role.CEO || user.role === Role.ASSISTANT) {
-      throw new BadRequestException("Cannot block CEO or ASSISTANT users");
+    // Nobody can block CEO
+    if (user.role === Role.CEO) {
+      throw new BadRequestException("Cannot block the CEO");
+    }
+
+    // ASSISTANT cannot block another ASSISTANT
+    if (callerRole === Role.ASSISTANT && user.role === Role.ASSISTANT) {
+      throw new ForbiddenException("Assistants cannot block other assistants");
     }
 
     if (user.isBlocked) {
@@ -197,9 +315,6 @@ export class UsersService {
     return { message: `User ${user.fullName} has been blocked` };
   }
 
-  /**
-   * CEO: Unblock a user.
-   */
   async unblockUser(userId: string, companyId: string) {
     const user = await this.prismaService.user.findUnique({
       where: { id: userId },
@@ -225,9 +340,6 @@ export class UsersService {
   // Self-service: Profile
   // ──────────────────────────────────────────────
 
-  /**
-   * Any user: view their own profile.
-   */
   async getProfile(userId: string) {
     const user = await this.prismaService.user.findUnique({
       where: { id: userId },
@@ -251,9 +363,6 @@ export class UsersService {
     return user;
   }
 
-  /**
-   * Any user: update their own profile (name and/or password).
-   */
   async updateProfile(userId: string, dto: UpdateProfileDto) {
     const user = await this.prismaService.user.findUnique({
       where: { id: userId },
@@ -265,12 +374,10 @@ export class UsersService {
 
     const data: Record<string, any> = {};
 
-    // Update name
     if (dto.fullName) {
       data.fullName = dto.fullName;
     }
 
-    // Update password (requires current password)
     if (dto.newPassword) {
       if (!dto.currentPassword) {
         throw new BadRequestException(
@@ -284,7 +391,6 @@ export class UsersService {
       }
 
       data.password = await bcrypt.hash(dto.newPassword, 10);
-      // Clear the mustChangePassword flag when user sets a new password
       data.mustChangePassword = false;
     }
 
@@ -307,7 +413,6 @@ export class UsersService {
     return updated;
   }
 
-  /** Use for auth: unknown email must not throw (same error as bad password). */
   async findByEmailOptional(email: string): Promise<User | null> {
     return this.prismaService.user.findUnique({ where: { email } });
   }

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
@@ -19,13 +20,11 @@ export class TeamsService {
     private readonly activityLog: ActivityLogService,
   ) {}
 
-  /**
-   * CEO creates a new team within their company.
-   * Validates that the designated team lead exists, belongs to the same company,
-   * and has the TEAM_LEAD role.
-   */
+  // ──────────────────────────────────────────────
+  // CEO: create a new team
+  // ──────────────────────────────────────────────
+
   async createTeam(dto: CreateTeamDto, companyId: string) {
-    // Validate the team lead
     const teamLead = await this.prisma.user.findUnique({
       where: { id: dto.teamLeadId },
     });
@@ -35,9 +34,7 @@ export class TeamsService {
     }
 
     if (teamLead.companyId !== companyId) {
-      throw new BadRequestException(
-        "Team lead does not belong to your company",
-      );
+      throw new BadRequestException("Team lead does not belong to your company");
     }
 
     if (teamLead.role !== Role.TEAM_LEAD && teamLead.role !== Role.CEO) {
@@ -56,10 +53,10 @@ export class TeamsService {
       },
       include: {
         teamLead: { select: { id: true, fullName: true, email: true, role: true } },
+        department: { select: { id: true, name: true } },
       },
     });
 
-    // Log team creation
     await this.activityLog.logAction(
       team.teamLead.id,
       companyId,
@@ -72,13 +69,52 @@ export class TeamsService {
     return team;
   }
 
-  /**
-   * Get all teams for a company.
-   */
-  async findAllByCompany(companyId: string, pagination: PaginationDto, departmentId?: string) {
+  // ──────────────────────────────────────────────
+  // List teams — scoped by caller role
+  // CEO: all company teams
+  // DEPARTMENT_HEAD: only teams in their departments
+  // TEAM_LEAD: only teams they lead
+  // ──────────────────────────────────────────────
+
+  async findAllByCompany(
+    companyId: string,
+    pagination: PaginationDto,
+    callerRole: Role,
+    callerId: string,
+    departmentId?: string,
+  ) {
     const where: any = { companyId };
+
+    // Explicit dept filter (CEO can use this)
     if (departmentId) {
       where.departmentId = departmentId;
+    }
+
+    // DEPARTMENT_HEAD — scope to their own departments only
+    if (callerRole === Role.DEPARTMENT_HEAD) {
+      // Find all departments this user heads
+      const headedDepts = await this.prisma.department.findMany({
+        where: { headId: callerId, companyId },
+        select: { id: true },
+      });
+      const deptIds = headedDepts.map((d) => d.id);
+
+      if (departmentId) {
+        // If they passed a dept filter, validate it's one they head
+        if (!deptIds.includes(departmentId)) {
+          throw new ForbiddenException(
+            "You can only view teams in departments you head",
+          );
+        }
+        // where.departmentId already set above
+      } else {
+        where.departmentId = { in: deptIds };
+      }
+    }
+
+    // TEAM_LEAD — only their own teams
+    if (callerRole === Role.TEAM_LEAD) {
+      where.teamLeadId = callerId;
     }
 
     const [data, total] = await Promise.all([
@@ -86,6 +122,7 @@ export class TeamsService {
         where,
         include: {
           teamLead: { select: { id: true, fullName: true, email: true, role: true } },
+          department: { select: { id: true, name: true } },
           _count: { select: { members: true } },
         },
         orderBy: { createdAt: "desc" },
@@ -97,14 +134,21 @@ export class TeamsService {
     return paginate(data, total, pagination);
   }
 
-  /**
-   * Get a single team by ID (must belong to the same company).
-   */
-  async findOne(teamId: string, companyId: string) {
+  // ──────────────────────────────────────────────
+  // Get single team — with scoping for DEPT_HEAD
+  // ──────────────────────────────────────────────
+
+  async findOne(
+    teamId: string,
+    companyId: string,
+    callerRole: Role,
+    callerId: string,
+  ) {
     const team = await this.prisma.team.findUnique({
       where: { id: teamId },
       include: {
         teamLead: { select: { id: true, fullName: true, email: true, role: true } },
+        department: { select: { id: true, name: true } },
         members: {
           include: {
             user: { select: { id: true, fullName: true, email: true, role: true } },
@@ -117,16 +161,37 @@ export class TeamsService {
       throw new NotFoundException("Team not found");
     }
 
+    // DEPARTMENT_HEAD — can only see teams in their own departments
+    if (callerRole === Role.DEPARTMENT_HEAD) {
+      const dept = await this.prisma.department.findUnique({
+        where: { id: team.departmentId ?? undefined },
+      });
+      if (!dept || dept.headId !== callerId) {
+        throw new ForbiddenException(
+          "You can only view teams in departments you head",
+        );
+      }
+    }
+
+    // TEAM_LEAD — can only see their own team
+    if (callerRole === Role.TEAM_LEAD && team.teamLeadId !== callerId) {
+      throw new ForbiddenException("You can only view teams you lead");
+    }
+
     return team;
   }
 
-  /**
-   * CEO adds a member to a team.
-   * Validates that the user exists, belongs to the same company,
-   * and is not already a member of this team.
-   */
-  async addMember(teamId: string, dto: AddTeamMemberDto, companyId: string) {
-    // Validate the team exists and belongs to the company
+  // ──────────────────────────────────────────────
+  // Edit team — CEO or DEPARTMENT_HEAD (own dept)
+  // ──────────────────────────────────────────────
+
+  async updateTeam(
+    teamId: string,
+    companyId: string,
+    callerRole: Role,
+    callerId: string,
+    dto: { name?: string; description?: string; teamLeadId?: string },
+  ) {
     const team = await this.prisma.team.findUnique({
       where: { id: teamId },
     });
@@ -135,7 +200,117 @@ export class TeamsService {
       throw new NotFoundException("Team not found");
     }
 
-    // Validate the user exists and belongs to the same company
+    // DEPARTMENT_HEAD can only edit their own dept's teams
+    if (callerRole === Role.DEPARTMENT_HEAD) {
+      const dept = await this.prisma.department.findUnique({
+        where: { id: team.departmentId ?? undefined },
+      });
+      if (!dept || dept.headId !== callerId) {
+        throw new ForbiddenException(
+          "You can only edit teams in departments you head",
+        );
+      }
+    }
+
+    // Validate new team lead if provided
+    if (dto.teamLeadId) {
+      const teamLead = await this.prisma.user.findUnique({
+        where: { id: dto.teamLeadId },
+      });
+      if (!teamLead || teamLead.companyId !== companyId) {
+        throw new NotFoundException("Team lead user not found");
+      }
+      if (
+        teamLead.role !== Role.TEAM_LEAD &&
+        teamLead.role !== Role.CEO &&
+        teamLead.role !== Role.DEPARTMENT_HEAD
+      ) {
+        throw new BadRequestException(
+          "Designated user must have the TEAM_LEAD, CEO, or DEPARTMENT_HEAD role",
+        );
+      }
+    }
+
+    return this.prisma.team.update({
+      where: { id: teamId },
+      data: {
+        ...(dto.name && { name: dto.name }),
+        ...(dto.description !== undefined && { description: dto.description }),
+        ...(dto.teamLeadId && { teamLeadId: dto.teamLeadId }),
+      },
+      include: {
+        teamLead: { select: { id: true, fullName: true, email: true, role: true } },
+        department: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  // ──────────────────────────────────────────────
+  // Delete team — CEO or DEPARTMENT_HEAD (own dept)
+  // ──────────────────────────────────────────────
+
+  async deleteTeam(
+    teamId: string,
+    companyId: string,
+    callerRole: Role,
+    callerId: string,
+  ) {
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+    });
+
+    if (!team || team.companyId !== companyId) {
+      throw new NotFoundException("Team not found");
+    }
+
+    // DEPARTMENT_HEAD can only delete their own dept's teams
+    if (callerRole === Role.DEPARTMENT_HEAD) {
+      const dept = await this.prisma.department.findUnique({
+        where: { id: team.departmentId ?? undefined },
+      });
+      if (!dept || dept.headId !== callerId) {
+        throw new ForbiddenException(
+          "You can only delete teams in departments you head",
+        );
+      }
+    }
+
+    await this.prisma.team.delete({ where: { id: teamId } });
+
+    return { message: "Team deleted successfully" };
+  }
+
+  // ──────────────────────────────────────────────
+  // Add member — CEO or DEPARTMENT_HEAD (own dept)
+  // ──────────────────────────────────────────────
+
+  async addMember(
+    teamId: string,
+    dto: AddTeamMemberDto,
+    companyId: string,
+    callerRole: Role,
+    callerId: string,
+  ) {
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+    });
+
+    if (!team || team.companyId !== companyId) {
+      throw new NotFoundException("Team not found");
+    }
+
+    // DEPARTMENT_HEAD can only manage their own dept's teams
+    if (callerRole === Role.DEPARTMENT_HEAD) {
+      const dept = await this.prisma.department.findUnique({
+        where: { id: team.departmentId ?? undefined },
+      });
+      if (!dept || dept.headId !== callerId) {
+        throw new ForbiddenException(
+          "You can only manage members of teams in your department",
+        );
+      }
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id: dto.userId },
     });
@@ -148,7 +323,6 @@ export class TeamsService {
       throw new BadRequestException("User does not belong to your company");
     }
 
-    // Check for duplicate membership
     const existingMember = await this.prisma.teamMember.findUnique({
       where: {
         userId_teamId: { userId: dto.userId, teamId },
@@ -170,16 +344,35 @@ export class TeamsService {
     });
   }
 
-  /**
-   * Remove a member from a team.
-   */
-  async removeMember(teamId: string, userId: string, companyId: string) {
+  // ──────────────────────────────────────────────
+  // Remove member — CEO or DEPARTMENT_HEAD (own dept)
+  // ──────────────────────────────────────────────
+
+  async removeMember(
+    teamId: string,
+    userId: string,
+    companyId: string,
+    callerRole: Role,
+    callerId: string,
+  ) {
     const team = await this.prisma.team.findUnique({
       where: { id: teamId },
     });
 
     if (!team || team.companyId !== companyId) {
       throw new NotFoundException("Team not found");
+    }
+
+    // DEPARTMENT_HEAD can only manage their own dept's teams
+    if (callerRole === Role.DEPARTMENT_HEAD) {
+      const dept = await this.prisma.department.findUnique({
+        where: { id: team.departmentId ?? undefined },
+      });
+      if (!dept || dept.headId !== callerId) {
+        throw new ForbiddenException(
+          "You can only manage members of teams in your department",
+        );
+      }
     }
 
     const membership = await this.prisma.teamMember.findUnique({

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -9,7 +10,7 @@ import {
   Request,
   UseGuards,
 } from "@nestjs/common";
-import { ApiTags, ApiBearerAuth, ApiOperation } from "@nestjs/swagger";
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from "@nestjs/swagger";
 import { UsersService } from "./users.service";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { CreateAssistantDto } from "./dto/create-assistant.dto";
@@ -19,6 +20,42 @@ import { Roles } from "src/common/decorators/roles.decorator";
 import { PaginationDto } from "src/common/dto/pagination.dto";
 import { UpdateProfileDto } from "./dto/update-profile.dto";
 import { Role } from "@prisma/client";
+import { IsEnum, IsOptional, IsString, MaxLength } from "class-validator";
+import { ApiPropertyOptional } from "@nestjs/swagger";
+import { Transform } from "class-transformer";
+
+// ── Inline filter DTO (no extra file needed) ──────────────────────────────────
+class UserFilterDto extends PaginationDto {
+  @ApiPropertyOptional({ enum: Role, description: "Filter by role" })
+  @IsOptional()
+  @IsEnum(Role)
+  role?: Role;
+
+  @ApiPropertyOptional({ description: "Filter by blocked status (true/false)" })
+  @IsOptional()
+  @Transform(({ value }) => value === "true" || value === true)
+  isBlocked?: boolean;
+
+  @ApiPropertyOptional({ description: "Search by name or email" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
+}
+
+// ── Inline admin-update DTO ───────────────────────────────────────────────────
+class AdminUpdateUserDto {
+  @ApiPropertyOptional({ example: "Jane Smith" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  fullName?: string;
+
+  @ApiPropertyOptional({ enum: Role })
+  @IsOptional()
+  @IsEnum(Role)
+  role?: Role;
+}
 
 @ApiTags("Users")
 @ApiBearerAuth("JWT")
@@ -39,8 +76,8 @@ export class UsersController {
     return this.usersService.getProfile(req.user.userId);
   }
 
-  /** Any user: update their name or password. */
-  @ApiOperation({ summary: "Any user: update their name or password." })
+  /** Any user: update their own name or password. */
+  @ApiOperation({ summary: "Any user: update their own name or password." })
   @Roles(Role.CEO, Role.ASSISTANT, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE)
   @Patch("profile")
   updateProfile(@Body() dto: UpdateProfileDto, @Request() req) {
@@ -64,31 +101,73 @@ export class UsersController {
   // ──────────────────────────────────────────────
 
   /**
-   * CEO or ASSISTANT: create a new DEPARTMENT_HEAD, TEAM_LEAD, or EMPLOYEE account.
+   * CEO or ASSISTANT: create a new DEPARTMENT_HEAD, TEAM_LEAD, or EMPLOYEE.
    * Only CEO can create DEPARTMENT_HEAD accounts.
-   * departmentId is required — the user is assigned to a home department.
    */
-  @ApiOperation({ summary: "CEO or ASSISTANT: create a new DEPARTMENT_HEAD, TEAM_LEAD, or EMPLOYEE. departmentId required." })
+  @ApiOperation({ summary: "CEO or ASSISTANT: create a new user (DEPARTMENT_HEAD, TEAM_LEAD, EMPLOYEE)." })
   @Roles(Role.CEO, Role.ASSISTANT)
   @Post()
   createUser(@Body() createUserDto: CreateUserDto, @Request() req) {
     return this.usersService.createUser(createUserDto, req.user.companyId, req.user.role);
   }
 
-  /** CEO or ASSISTANT: list all users in the company (paginated). */
-  @ApiOperation({ summary: "CEO or ASSISTANT: list all users in the company (paginated)." })
+  /**
+   * CEO or ASSISTANT: list all users (paginated + filterable).
+   * Query params: role, isBlocked, search, page, limit
+   */
+  @ApiOperation({ summary: "CEO or ASSISTANT: list users (filterable by role, blocked status, name/email search)." })
   @Roles(Role.CEO, Role.ASSISTANT)
   @Get()
-  findAll(@Query() pagination: PaginationDto, @Request() req) {
-    return this.usersService.findAllByCompany(req.user.companyId, pagination);
+  findAll(@Query() query: UserFilterDto, @Request() req) {
+    const { role, isBlocked, search, ...pagination } = query;
+    return this.usersService.findAllByCompany(req.user.companyId, pagination, {
+      role,
+      isBlocked,
+      search,
+    });
+  }
+
+  /**
+   * CEO or ASSISTANT: admin-update another user's profile.
+   * CEO: can update fullName + role (not to CEO).
+   * ASSISTANT: can update fullName only; cannot touch other ASSISTANTs.
+   */
+  @ApiOperation({ summary: "CEO or ASSISTANT: admin-update a user's fullName (and role for CEO)." })
+  @Roles(Role.CEO, Role.ASSISTANT)
+  @Patch(":id")
+  adminUpdateUser(
+    @Param("id") targetId: string,
+    @Body() dto: AdminUpdateUserDto,
+    @Request() req,
+  ) {
+    return this.usersService.adminUpdateUser(
+      targetId,
+      req.user.companyId,
+      req.user.role,
+      dto,
+    );
+  }
+
+  /**
+   * CEO only: permanently delete a user from the company.
+   */
+  @ApiOperation({ summary: "CEO: permanently delete a user." })
+  @Roles(Role.CEO)
+  @Delete(":id")
+  deleteUser(@Param("id") targetId: string, @Request() req) {
+    return this.usersService.deleteUser(
+      targetId,
+      req.user.companyId,
+      req.user.userId,
+    );
   }
 
   /** CEO or ASSISTANT: block a user (prevents login). */
-  @ApiOperation({ summary: "CEO or ASSISTANT: block a user (prevents login)." })
+  @ApiOperation({ summary: "CEO or ASSISTANT: block a user." })
   @Roles(Role.CEO, Role.ASSISTANT)
   @Patch(":id/block")
   blockUser(@Param("id") userId: string, @Request() req) {
-    return this.usersService.blockUser(userId, req.user.companyId);
+    return this.usersService.blockUser(userId, req.user.companyId, req.user.role);
   }
 
   /** CEO or ASSISTANT: unblock a user. */
