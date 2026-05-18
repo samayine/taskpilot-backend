@@ -56,17 +56,36 @@ export class TeamsService {
     }
 
     if (teamLead.companyId !== companyId) {
-      throw new BadRequestException("Team lead does not belong to your company");
+      throw new BadRequestException(
+        "Team lead does not belong to your company",
+      );
     }
 
+    if (teamLead.isBlocked) {
+      throw new BadRequestException("Cannot assign a blocked user as team lead");
+    }
+
+    // CEO and DEPARTMENT_HEAD cannot be demoted — only EMPLOYEE / TEAM_LEAD
     if (
-      teamLead.role !== Role.TEAM_LEAD &&
-      teamLead.role !== Role.CEO &&
-      teamLead.role !== Role.DEPARTMENT_HEAD
+      teamLead.role === Role.CEO ||
+      teamLead.role === Role.ASSISTANT
     ) {
       throw new BadRequestException(
-        "Designated user must have the TEAM_LEAD, CEO, or DEPARTMENT_HEAD role",
+        "CEO and ASSISTANT users cannot be assigned as team lead",
       );
+    }
+
+    // For DEPARTMENT_HEAD caller: the selected team lead must also belong
+    // to the same department
+    if (callerRole === Role.DEPARTMENT_HEAD && dto.departmentId) {
+      if (
+        teamLead.departmentId !== dto.departmentId &&
+        teamLead.role !== Role.DEPARTMENT_HEAD
+      ) {
+        throw new BadRequestException(
+          "The selected team lead must be a member of the same department",
+        );
+      }
     }
 
     const team = await this.prisma.team.create({
@@ -82,6 +101,14 @@ export class TeamsService {
         department: { select: { id: true, name: true } },
       },
     });
+
+    // Promote selected user to TEAM_LEAD if they are an EMPLOYEE
+    if (teamLead.role === Role.EMPLOYEE) {
+      await this.prisma.user.update({
+        where: { id: dto.teamLeadId },
+        data: { role: Role.TEAM_LEAD },
+      });
+    }
 
     await this.activityLog.logAction(
       callerId,
@@ -240,20 +267,54 @@ export class TeamsService {
 
     // Validate new team lead if provided
     if (dto.teamLeadId) {
-      const teamLead = await this.prisma.user.findUnique({
+      const newLead = await this.prisma.user.findUnique({
         where: { id: dto.teamLeadId },
       });
-      if (!teamLead || teamLead.companyId !== companyId) {
+      if (!newLead || newLead.companyId !== companyId) {
         throw new NotFoundException("Team lead user not found");
       }
-      if (
-        teamLead.role !== Role.TEAM_LEAD &&
-        teamLead.role !== Role.CEO &&
-        teamLead.role !== Role.DEPARTMENT_HEAD
-      ) {
+      if (newLead.isBlocked) {
+        throw new BadRequestException("Cannot assign a blocked user as team lead");
+      }
+      if (newLead.role === Role.CEO || newLead.role === Role.ASSISTANT) {
         throw new BadRequestException(
-          "Designated user must have the TEAM_LEAD, CEO, or DEPARTMENT_HEAD role",
+          "CEO and ASSISTANT users cannot be assigned as team lead",
         );
+      }
+    }
+
+    // Promote new lead to TEAM_LEAD if needed, demote old lead if no longer leading any team
+    if (dto.teamLeadId && dto.teamLeadId !== team.teamLeadId) {
+      const newLead = await this.prisma.user.findUniqueOrThrow({
+        where: { id: dto.teamLeadId },
+      });
+
+      if (newLead.role === Role.EMPLOYEE) {
+        await this.prisma.user.update({
+          where: { id: dto.teamLeadId },
+          data: { role: Role.TEAM_LEAD },
+        });
+      }
+
+      // Demote old lead back to EMPLOYEE if they are TEAM_LEAD and lead no other teams
+      if (team.teamLeadId) {
+        const oldLead = await this.prisma.user.findUnique({
+          where: { id: team.teamLeadId },
+        });
+        if (oldLead && oldLead.role === Role.TEAM_LEAD) {
+          const otherTeams = await this.prisma.team.count({
+            where: {
+              teamLeadId: team.teamLeadId,
+              id: { not: teamId },
+            },
+          });
+          if (otherTeams === 0) {
+            await this.prisma.user.update({
+              where: { id: team.teamLeadId },
+              data: { role: Role.EMPLOYEE },
+            });
+          }
+        }
       }
     }
 

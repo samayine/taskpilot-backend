@@ -79,9 +79,15 @@ export class UsersService {
       );
     }
 
+    if (createUserDto.role === Role.TEAM_LEAD) {
+      throw new BadRequestException(
+        "TEAM_LEAD cannot be assigned at creation. Add the user as an EMPLOYEE and then assign them as a team lead.",
+      );
+    }
+
     if (!createUserDto.departmentId) {
       throw new BadRequestException(
-        "departmentId is required when creating EMPLOYEE, TEAM_LEAD, or DEPARTMENT_HEAD accounts",
+        "departmentId is required when creating EMPLOYEE or DEPARTMENT_HEAD accounts",
       );
     }
 
