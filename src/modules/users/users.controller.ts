@@ -128,6 +128,25 @@ export class UsersController {
   }
 
   /**
+   * CEO or DEPARTMENT_HEAD: list users that can be assigned to teams
+   * (as team lead or member). CEO sees all company users; a DEPARTMENT_HEAD
+   * sees only users in the departments they head.
+   */
+  @ApiOperation({
+    summary:
+      "CEO or DEPARTMENT_HEAD: list users assignable to teams (scoped by role).",
+  })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD)
+  @Get("assignable")
+  findAssignable(@Request() req) {
+    return this.usersService.getAssignableUsers(
+      req.user.companyId,
+      req.user.role,
+      req.user.userId,
+    );
+  }
+
+  /**
    * CEO or ASSISTANT: admin-update another user's profile.
    * CEO: can update fullName + role (not to CEO).
    * ASSISTANT: can update fullName only; cannot touch other ASSISTANTs.
@@ -149,16 +168,18 @@ export class UsersController {
   }
 
   /**
-   * CEO only: permanently delete a user from the company.
+   * CEO or ASSISTANT: permanently delete a user from the company.
+   * ASSISTANT cannot delete the CEO or other ASSISTANTs.
    */
-  @ApiOperation({ summary: "CEO: permanently delete a user." })
-  @Roles(Role.CEO)
+  @ApiOperation({ summary: "CEO or ASSISTANT: permanently delete a user." })
+  @Roles(Role.CEO, Role.ASSISTANT)
   @Delete(":id")
   deleteUser(@Param("id") targetId: string, @Request() req) {
     return this.usersService.deleteUser(
       targetId,
       req.user.companyId,
       req.user.userId,
+      req.user.role,
     );
   }
 

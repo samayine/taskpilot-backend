@@ -60,13 +60,15 @@ export class CreateTaskDto {
   projectId?: string;
 
   /**
-   * Optional: tag which department this task belongs to (in cross-dept projects).
+   * Tag which department this task belongs to. Required when the team is shared
+   * (cross-department); must be one of the team's involved departments.
    */
   @ApiPropertyOptional({
-    example: "Engineering",
-    description: "Department tag for filtering in cross-department projects",
+    example: "123e4567-e89b-12d3-a456-426614174003",
+    description:
+      "Department this task is tagged for (required for shared/cross-department teams)",
   })
-  @IsString()
+  @IsUUID()
   @IsOptional()
-  departmentTag?: string;
+  taggedDepartmentId?: string;
 }

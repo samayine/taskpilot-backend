@@ -43,12 +43,54 @@ export class TasksService {
     private readonly activityLog: ActivityLogService,
   ) {}
 
+  // Whether a user may perform team-lead actions on a team:
+  //  - CEO: always (super-power)
+  //  - the team's own team lead: always
+  //  - DEPARTMENT_HEAD: if the team is in / shares one of their departments
+  private async canActAsLead(
+    team: {
+      id: string;
+      teamLeadId: string;
+      departmentId: string | null;
+      isShared: boolean;
+    },
+    userId: string,
+    role: Role,
+  ): Promise<boolean> {
+    if (role === Role.CEO) return true;
+    if (team.teamLeadId === userId) return true;
+
+    if (role === Role.DEPARTMENT_HEAD) {
+      const headedDepts = await this.prisma.department.findMany({
+        where: { headId: userId },
+        select: { id: true },
+      });
+      const deptIds = new Set(headedDepts.map((d) => d.id));
+
+      if (!team.isShared) {
+        return !!team.departmentId && deptIds.has(team.departmentId);
+      }
+      const shared = await this.prisma.teamDepartment.findMany({
+        where: { teamId: team.id },
+        select: { departmentId: true },
+      });
+      return shared.some((sd) => deptIds.has(sd.departmentId));
+    }
+
+    return false;
+  }
+
   // ──────────────────────────────────────────────
-  // Team Lead: Create & assign a task
+  // Team Lead / Department Head / CEO: Create & assign a task
   // ──────────────────────────────────────────────
 
-  async createTask(dto: CreateTaskDto, creatorId: string, companyId: string) {
-    // 1. Validate the team exists and this team lead manages it
+  async createTask(
+    dto: CreateTaskDto,
+    creatorId: string,
+    companyId: string,
+    callerRole: Role,
+  ) {
+    // 1. Validate the team exists and the caller may act as its lead
     const team = await this.prisma.team.findUnique({
       where: { id: dto.teamId },
     });
@@ -57,8 +99,10 @@ export class TasksService {
       throw new NotFoundException("Team not found");
     }
 
-    if (team.teamLeadId !== creatorId) {
-      throw new ForbiddenException("You are not the lead of this team");
+    if (!(await this.canActAsLead(team, creatorId, callerRole))) {
+      throw new ForbiddenException(
+        "You do not have permission to create tasks for this team",
+      );
     }
 
     // 2. Validate the assignee is a member of this team and is an EMPLOYEE
@@ -86,7 +130,35 @@ export class TasksService {
       );
     }
 
-    // 3. Create the task
+    // 3. Resolve the tagged department.
+    //    Shared teams require a tag that is one of the involved departments;
+    //    normal teams default to the team's own department.
+    let taggedDepartmentId: string | null;
+    if (team.isShared) {
+      if (!dto.taggedDepartmentId) {
+        throw new BadRequestException(
+          "A department tag is required for tasks in a shared team",
+        );
+      }
+      const involved = await this.prisma.teamDepartment.findUnique({
+        where: {
+          teamId_departmentId: {
+            teamId: dto.teamId,
+            departmentId: dto.taggedDepartmentId,
+          },
+        },
+      });
+      if (!involved) {
+        throw new BadRequestException(
+          "The tagged department is not part of this shared team",
+        );
+      }
+      taggedDepartmentId = dto.taggedDepartmentId;
+    } else {
+      taggedDepartmentId = dto.taggedDepartmentId ?? team.departmentId;
+    }
+
+    // 4. Create the task
     const task = await this.prisma.task.create({
       data: {
         title: dto.title,
@@ -96,6 +168,7 @@ export class TasksService {
         teamId: dto.teamId,
         creatorId,
         assigneeId: dto.assigneeId,
+        taggedDepartmentId,
       },
       include: {
         assignee: { select: { id: true, fullName: true, email: true } },
@@ -284,7 +357,13 @@ export class TasksService {
   // Team Lead: Review a submitted task
   // ──────────────────────────────────────────────
 
-  async reviewTask(taskId: string, dto: ReviewTaskDto, userId: string, companyId: string) {
+  async reviewTask(
+    taskId: string,
+    dto: ReviewTaskDto,
+    userId: string,
+    companyId: string,
+    callerRole: Role,
+  ) {
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
       include: { team: true },
@@ -294,10 +373,14 @@ export class TasksService {
       throw new NotFoundException("Task not found");
     }
 
-    // Only the team lead of this task's team can review
-    if (task.team.teamLeadId !== userId) {
+    if (task.team.companyId !== companyId) {
+      throw new NotFoundException("Task not found");
+    }
+
+    // The team lead, a department head over the team, or the CEO may review
+    if (!(await this.canActAsLead(task.team, userId, callerRole))) {
       throw new ForbiddenException(
-        "Only the team lead of this task's team can review it",
+        "You do not have permission to review this task",
       );
     }
 
@@ -409,34 +492,41 @@ export class TasksService {
     role: Role,
     filters: TaskFilterDto,
   ) {
-    let teamIds: string[];
+    const filterConditions = this.buildTaskFilters(filters);
+    let where: Prisma.TaskWhereInput;
 
     if (role === Role.CEO) {
-      // CEO sees all tasks across all teams
-      const teams = await this.prisma.team.findMany({
-        where: { companyId },
-        select: { id: true },
-      });
-      teamIds = teams.map((t) => t.id);
+      // CEO sees all tasks across all teams in the company
+      where = {
+        ...filterConditions,
+        team: { companyId },
+      };
     } else {
-      // Department head sees tasks across teams in their departments
+      // Department head: tasks in their own department's teams, plus tasks in
+      // shared teams that are tagged for one of their departments.
       const departments = await this.prisma.department.findMany({
         where: { headId: userId, companyId },
         include: { teams: { select: { id: true } } },
       });
 
-      teamIds = departments.flatMap((d) => d.teams.map((t) => t.id));
-    }
+      const teamIds = departments.flatMap((d) => d.teams.map((t) => t.id));
+      const deptIds = departments.map((d) => d.id);
 
-    if (teamIds.length === 0) {
-      return paginate([], 0, filters);
-    }
+      if (teamIds.length === 0 && deptIds.length === 0) {
+        return paginate([], 0, filters);
+      }
 
-    const filterConditions = this.buildTaskFilters(filters);
-    const where: Prisma.TaskWhereInput = {
-      ...filterConditions,
-      teamId: { in: teamIds },
-    };
+      where = {
+        ...filterConditions,
+        OR: [
+          { teamId: { in: teamIds } },
+          {
+            team: { isShared: true },
+            taggedDepartmentId: { in: deptIds },
+          },
+        ],
+      };
+    }
 
     const [data, total] = await Promise.all([
       this.prisma.task.findMany({
@@ -466,7 +556,15 @@ export class TasksService {
       include: {
         assignee: { select: { id: true, fullName: true, email: true, role: true } },
         creator: { select: { id: true, fullName: true, email: true } },
-        team: { select: { id: true, name: true, companyId: true, departmentId: true } },
+        team: {
+          select: {
+            id: true,
+            name: true,
+            companyId: true,
+            departmentId: true,
+            isShared: true,
+          },
+        },
         project: { select: { id: true, name: true } },
       },
     });
@@ -496,21 +594,23 @@ export class TasksService {
       }
     }
 
-    // Department heads can view tasks in teams within their department
+    // Department heads can view tasks in their department's teams, plus tasks
+    // in shared teams that are tagged for one of their departments.
     if (role === Role.DEPARTMENT_HEAD) {
-      const teamDeptId = (task.team as any).departmentId;
-      if (teamDeptId) {
-        const dept = await this.prisma.department.findFirst({
-          where: { id: teamDeptId, headId: userId },
-        });
-        if (!dept) {
-          throw new ForbiddenException(
-            "You can only view tasks in your department's teams",
-          );
-        }
-      } else {
+      const headedDepts = await this.prisma.department.findMany({
+        where: { headId: userId, companyId },
+        select: { id: true },
+      });
+      const deptIds = new Set(headedDepts.map((d) => d.id));
+      const team = task.team as any;
+
+      const allowed = team.isShared
+        ? !!task.taggedDepartmentId && deptIds.has(task.taggedDepartmentId)
+        : !!team.departmentId && deptIds.has(team.departmentId);
+
+      if (!allowed) {
         throw new ForbiddenException(
-          "This task's team is not assigned to any department",
+          "You can only view tasks in your department's teams",
         );
       }
     }

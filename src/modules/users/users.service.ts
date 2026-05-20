@@ -260,10 +260,20 @@ export class UsersService {
   }
 
   // ──────────────────────────────────────────────
-  // CEO-only: delete a user
+  // CEO or ASSISTANT: delete a user
+  // Hierarchy: nobody deletes the CEO or themselves; an ASSISTANT cannot
+  // delete another ASSISTANT. Hybrid delete: block when the target still
+  // holds meaningful responsibilities (heads a department, leads a team,
+  // or has tasks); trivial children (memberships, comments, notifications,
+  // chat) are cleaned up by schema-level cascades.
   // ──────────────────────────────────────────────
 
-  async deleteUser(targetId: string, companyId: string, callerId: string) {
+  async deleteUser(
+    targetId: string,
+    companyId: string,
+    callerId: string,
+    callerRole: Role,
+  ) {
     const target = await this.prismaService.user.findUnique({
       where: { id: targetId },
     });
@@ -280,9 +290,77 @@ export class UsersService {
       throw new BadRequestException("Cannot delete your own account");
     }
 
+    if (callerRole === Role.ASSISTANT && target.role === Role.ASSISTANT) {
+      throw new ForbiddenException(
+        "Assistants cannot delete other assistant accounts",
+      );
+    }
+
+    // Hybrid delete — block when meaningful dependents exist
+    const [headOf, leadsTeams, taskCount] = await Promise.all([
+      this.prismaService.department.count({ where: { headId: targetId } }),
+      this.prismaService.team.count({ where: { teamLeadId: targetId } }),
+      this.prismaService.task.count({
+        where: { OR: [{ assigneeId: targetId }, { creatorId: targetId }] },
+      }),
+    ]);
+
+    if (headOf > 0) {
+      throw new BadRequestException(
+        "This user heads a department. Reassign the department head before deleting them.",
+      );
+    }
+    if (leadsTeams > 0) {
+      throw new BadRequestException(
+        "This user leads one or more teams. Reassign those team leads before deleting them.",
+      );
+    }
+    if (taskCount > 0) {
+      throw new BadRequestException(
+        "This user has tasks (created or assigned). Reassign or remove those tasks before deleting them.",
+      );
+    }
+
     await this.prismaService.user.delete({ where: { id: targetId } });
 
     return { message: `User ${target.fullName} has been deleted` };
+  }
+
+  // ──────────────────────────────────────────────
+  // CEO or DEPARTMENT_HEAD: list users assignable to teams
+  // CEO: all company users; DEPARTMENT_HEAD: users in departments they head
+  // ──────────────────────────────────────────────
+
+  async getAssignableUsers(companyId: string, callerRole: Role, callerId: string) {
+    const where: Prisma.UserWhereInput = { companyId };
+
+    if (callerRole === Role.DEPARTMENT_HEAD) {
+      const headedDepts = await this.prismaService.department.findMany({
+        where: { headId: callerId, companyId },
+        select: { id: true },
+      });
+      const deptIds = headedDepts.map((d) => d.id);
+      // Include the head themselves so they can be assigned as a team lead.
+      where.OR = [
+        { departmentId: { in: deptIds } },
+        { id: callerId },
+      ];
+    }
+
+    const users = await this.prismaService.user.findMany({
+      where,
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        isBlocked: true,
+        departmentId: true,
+      },
+      orderBy: { fullName: "asc" },
+    });
+
+    return users;
   }
 
   // ──────────────────────────────────────────────

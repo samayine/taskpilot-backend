@@ -1,5 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsNotEmpty, IsString, IsOptional, IsUUID } from "class-validator";
+import {
+  IsNotEmpty,
+  IsString,
+  IsOptional,
+  IsUUID,
+  IsBoolean,
+  IsArray,
+  ArrayNotEmpty,
+} from "class-validator";
 
 export class CreateTeamDto {
   @ApiProperty({ example: "Engineering Team" })
@@ -28,4 +36,29 @@ export class CreateTeamDto {
   @IsUUID()
   @IsNotEmpty()
   teamLeadId: string;
+
+  /**
+   * Mark this as a shared (cross-department) team. CEO-only.
+   * When true, omit departmentId and provide departmentIds instead.
+   */
+  @ApiPropertyOptional({
+    example: false,
+    description: "Whether this is a shared cross-department team (CEO only)",
+  })
+  @IsBoolean()
+  @IsOptional()
+  isShared?: boolean;
+
+  /**
+   * The departments involved in a shared team. Required when isShared is true.
+   */
+  @ApiPropertyOptional({
+    type: [String],
+    description: "Departments involved in a shared team (required when isShared)",
+  })
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsUUID("all", { each: true })
+  @IsOptional()
+  departmentIds?: string[];
 }

@@ -44,6 +44,7 @@ export class TasksController {
       dto,
       req.user.userId,
       req.user.companyId,
+      req.user.role,
     );
   }
 
@@ -68,7 +69,13 @@ export class TasksController {
     @Body() dto: ReviewTaskDto,
     @Request() req,
   ) {
-    return this.tasksService.reviewTask(taskId, dto, req.user.userId, req.user.companyId);
+    return this.tasksService.reviewTask(
+      taskId,
+      dto,
+      req.user.userId,
+      req.user.companyId,
+      req.user.role,
+    );
   }
 
   /** DEPARTMENT_HEAD: view all tasks across teams in their department. */

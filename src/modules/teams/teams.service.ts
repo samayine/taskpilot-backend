@@ -24,14 +24,65 @@ export class TeamsService {
   // CEO: create a new team
   // ──────────────────────────────────────────────
 
+  // Verify a DEPARTMENT_HEAD may manage the given team (normal team in a
+  // department they head, or a shared team involving one of their departments).
+  private async assertDeptHeadManages(
+    team: {
+      departmentId: string | null;
+      isShared: boolean;
+      sharedDepartments?: { departmentId: string }[];
+    },
+    callerId: string,
+  ) {
+    const headedDepts = await this.prisma.department.findMany({
+      where: { headId: callerId },
+      select: { id: true },
+    });
+    const deptIds = new Set(headedDepts.map((d) => d.id));
+
+    const manages = team.isShared
+      ? (team.sharedDepartments ?? []).some((sd) => deptIds.has(sd.departmentId))
+      : !!team.departmentId && deptIds.has(team.departmentId);
+
+    if (!manages) {
+      throw new ForbiddenException(
+        "You can only manage teams in departments you head",
+      );
+    }
+  }
+
   async createTeam(
     dto: CreateTeamDto,
     companyId: string,
     callerRole: Role,
     callerId: string,
   ) {
-    // DEPARTMENT_HEAD must supply a departmentId that they actually head
-    if (callerRole === Role.DEPARTMENT_HEAD) {
+    const isShared = !!dto.isShared;
+
+    if (isShared) {
+      // Shared (cross-department) teams are CEO-only
+      if (callerRole !== Role.CEO) {
+        throw new ForbiddenException(
+          "Only the CEO can create shared cross-department teams",
+        );
+      }
+      if (!dto.departmentIds || dto.departmentIds.length === 0) {
+        throw new BadRequestException(
+          "Shared teams require at least one involved department",
+        );
+      }
+      const uniqueDeptIds = [...new Set(dto.departmentIds)];
+      const depts = await this.prisma.department.findMany({
+        where: { id: { in: uniqueDeptIds }, companyId },
+        select: { id: true },
+      });
+      if (depts.length !== uniqueDeptIds.length) {
+        throw new BadRequestException(
+          "One or more departments are invalid or not in your company",
+        );
+      }
+    } else if (callerRole === Role.DEPARTMENT_HEAD) {
+      // DEPARTMENT_HEAD must supply a departmentId that they actually head
       if (!dto.departmentId) {
         throw new BadRequestException(
           "Department heads must specify a department when creating a team",
@@ -65,7 +116,7 @@ export class TeamsService {
       throw new BadRequestException("Cannot assign a blocked user as team lead");
     }
 
-    // CEO and DEPARTMENT_HEAD cannot be demoted — only EMPLOYEE / TEAM_LEAD
+    // CEO and ASSISTANT cannot be demoted — only EMPLOYEE / TEAM_LEAD
     if (
       teamLead.role === Role.CEO ||
       teamLead.role === Role.ASSISTANT
@@ -75,9 +126,9 @@ export class TeamsService {
       );
     }
 
-    // For DEPARTMENT_HEAD caller: the selected team lead must also belong
-    // to the same department
-    if (callerRole === Role.DEPARTMENT_HEAD && dto.departmentId) {
+    // For DEPARTMENT_HEAD caller on a normal team: the selected team lead
+    // must also belong to the same department
+    if (!isShared && callerRole === Role.DEPARTMENT_HEAD && dto.departmentId) {
       if (
         teamLead.departmentId !== dto.departmentId &&
         teamLead.role !== Role.DEPARTMENT_HEAD
@@ -92,13 +143,26 @@ export class TeamsService {
       data: {
         name: dto.name,
         description: dto.description,
-        departmentId: dto.departmentId,
+        departmentId: isShared ? null : dto.departmentId,
+        isShared,
         companyId,
         teamLeadId: dto.teamLeadId,
+        ...(isShared && dto.departmentIds
+          ? {
+              sharedDepartments: {
+                create: [...new Set(dto.departmentIds)].map((departmentId) => ({
+                  departmentId,
+                })),
+              },
+            }
+          : {}),
       },
       include: {
         teamLead: { select: { id: true, fullName: true, email: true, role: true } },
         department: { select: { id: true, name: true } },
+        sharedDepartments: {
+          include: { department: { select: { id: true, name: true } } },
+        },
       },
     });
 
@@ -138,14 +202,16 @@ export class TeamsService {
   ) {
     const where: any = { companyId };
 
-    // Explicit dept filter (CEO can use this)
-    if (departmentId) {
-      where.departmentId = departmentId;
-    }
-
-    // DEPARTMENT_HEAD — scope to their own departments only
-    if (callerRole === Role.DEPARTMENT_HEAD) {
-      // Find all departments this user heads
+    if (callerRole === Role.CEO) {
+      // Explicit dept filter — include shared teams involving that dept
+      if (departmentId) {
+        where.OR = [
+          { departmentId },
+          { isShared: true, sharedDepartments: { some: { departmentId } } },
+        ];
+      }
+    } else if (callerRole === Role.DEPARTMENT_HEAD) {
+      // Scope to departments they head — normal teams plus shared teams
       const headedDepts = await this.prisma.department.findMany({
         where: { headId: callerId, companyId },
         select: { id: true },
@@ -153,20 +219,26 @@ export class TeamsService {
       const deptIds = headedDepts.map((d) => d.id);
 
       if (departmentId) {
-        // If they passed a dept filter, validate it's one they head
         if (!deptIds.includes(departmentId)) {
           throw new ForbiddenException(
             "You can only view teams in departments you head",
           );
         }
-        // where.departmentId already set above
+        where.OR = [
+          { departmentId },
+          { isShared: true, sharedDepartments: { some: { departmentId } } },
+        ];
       } else {
-        where.departmentId = { in: deptIds };
+        where.OR = [
+          { departmentId: { in: deptIds } },
+          {
+            isShared: true,
+            sharedDepartments: { some: { departmentId: { in: deptIds } } },
+          },
+        ];
       }
-    }
-
-    // TEAM_LEAD — only their own teams
-    if (callerRole === Role.TEAM_LEAD) {
+    } else if (callerRole === Role.TEAM_LEAD) {
+      // TEAM_LEAD — only their own teams
       where.teamLeadId = callerId;
     }
 
@@ -176,6 +248,9 @@ export class TeamsService {
         include: {
           teamLead: { select: { id: true, fullName: true, email: true, role: true } },
           department: { select: { id: true, name: true } },
+          sharedDepartments: {
+            include: { department: { select: { id: true, name: true } } },
+          },
           _count: { select: { members: true } },
         },
         orderBy: { createdAt: "desc" },
@@ -202,6 +277,9 @@ export class TeamsService {
       include: {
         teamLead: { select: { id: true, fullName: true, email: true, role: true } },
         department: { select: { id: true, name: true } },
+        sharedDepartments: {
+          include: { department: { select: { id: true, name: true } } },
+        },
         members: {
           include: {
             user: { select: { id: true, fullName: true, email: true, role: true } },
@@ -214,16 +292,10 @@ export class TeamsService {
       throw new NotFoundException("Team not found");
     }
 
-    // DEPARTMENT_HEAD — can only see teams in their own departments
+    // DEPARTMENT_HEAD — can only see teams in their own departments (or shared
+    // teams that involve one of their departments)
     if (callerRole === Role.DEPARTMENT_HEAD) {
-      const dept = await this.prisma.department.findUnique({
-        where: { id: team.departmentId ?? undefined },
-      });
-      if (!dept || dept.headId !== callerId) {
-        throw new ForbiddenException(
-          "You can only view teams in departments you head",
-        );
-      }
+      await this.assertDeptHeadManages(team, callerId);
     }
 
     // TEAM_LEAD — can only see their own team
@@ -247,6 +319,7 @@ export class TeamsService {
   ) {
     const team = await this.prisma.team.findUnique({
       where: { id: teamId },
+      include: { sharedDepartments: { select: { departmentId: true } } },
     });
 
     if (!team || team.companyId !== companyId) {
@@ -255,14 +328,7 @@ export class TeamsService {
 
     // DEPARTMENT_HEAD can only edit their own dept's teams
     if (callerRole === Role.DEPARTMENT_HEAD) {
-      const dept = await this.prisma.department.findUnique({
-        where: { id: team.departmentId ?? undefined },
-      });
-      if (!dept || dept.headId !== callerId) {
-        throw new ForbiddenException(
-          "You can only edit teams in departments you head",
-        );
-      }
+      await this.assertDeptHeadManages(team, callerId);
     }
 
     // Validate new team lead if provided
@@ -328,6 +394,9 @@ export class TeamsService {
       include: {
         teamLead: { select: { id: true, fullName: true, email: true, role: true } },
         department: { select: { id: true, name: true } },
+        sharedDepartments: {
+          include: { department: { select: { id: true, name: true } } },
+        },
       },
     });
   }
@@ -344,6 +413,7 @@ export class TeamsService {
   ) {
     const team = await this.prisma.team.findUnique({
       where: { id: teamId },
+      include: { sharedDepartments: { select: { departmentId: true } } },
     });
 
     if (!team || team.companyId !== companyId) {
@@ -352,14 +422,16 @@ export class TeamsService {
 
     // DEPARTMENT_HEAD can only delete their own dept's teams
     if (callerRole === Role.DEPARTMENT_HEAD) {
-      const dept = await this.prisma.department.findUnique({
-        where: { id: team.departmentId ?? undefined },
-      });
-      if (!dept || dept.headId !== callerId) {
-        throw new ForbiddenException(
-          "You can only delete teams in departments you head",
-        );
-      }
+      await this.assertDeptHeadManages(team, callerId);
+    }
+
+    // Hybrid delete — block if the team still has tasks; memberships and
+    // shared-department links are cleaned up by schema-level cascades.
+    const taskCount = await this.prisma.task.count({ where: { teamId } });
+    if (taskCount > 0) {
+      throw new BadRequestException(
+        "This team has tasks. Reassign or remove its tasks before deleting it.",
+      );
     }
 
     await this.prisma.team.delete({ where: { id: teamId } });
@@ -380,6 +452,7 @@ export class TeamsService {
   ) {
     const team = await this.prisma.team.findUnique({
       where: { id: teamId },
+      include: { sharedDepartments: { select: { departmentId: true } } },
     });
 
     if (!team || team.companyId !== companyId) {
@@ -388,14 +461,7 @@ export class TeamsService {
 
     // DEPARTMENT_HEAD can only manage their own dept's teams
     if (callerRole === Role.DEPARTMENT_HEAD) {
-      const dept = await this.prisma.department.findUnique({
-        where: { id: team.departmentId ?? undefined },
-      });
-      if (!dept || dept.headId !== callerId) {
-        throw new ForbiddenException(
-          "You can only manage members of teams in your department",
-        );
-      }
+      await this.assertDeptHeadManages(team, callerId);
     }
 
     const user = await this.prisma.user.findUnique({
@@ -444,6 +510,7 @@ export class TeamsService {
   ) {
     const team = await this.prisma.team.findUnique({
       where: { id: teamId },
+      include: { sharedDepartments: { select: { departmentId: true } } },
     });
 
     if (!team || team.companyId !== companyId) {
@@ -452,14 +519,7 @@ export class TeamsService {
 
     // DEPARTMENT_HEAD can only manage their own dept's teams
     if (callerRole === Role.DEPARTMENT_HEAD) {
-      const dept = await this.prisma.department.findUnique({
-        where: { id: team.departmentId ?? undefined },
-      });
-      if (!dept || dept.headId !== callerId) {
-        throw new ForbiddenException(
-          "You can only manage members of teams in your department",
-        );
-      }
+      await this.assertDeptHeadManages(team, callerId);
     }
 
     const membership = await this.prisma.teamMember.findUnique({

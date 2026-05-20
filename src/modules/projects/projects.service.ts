@@ -291,12 +291,12 @@ export class ProjectsService {
     if (role === Role.DEPARTMENT_HEAD) {
       const headDepts = await this.prisma.department.findMany({
         where: { headId: userId, companyId },
-        select: { name: true },
+        select: { id: true },
       });
-      const deptNames = headDepts.map((d) => d.name);
+      const deptIds = headDepts.map((d) => d.id);
       where = {
         projectId,
-        departmentTag: { in: deptNames },
+        taggedDepartmentId: { in: deptIds },
       };
     }
 
@@ -336,9 +336,9 @@ export class ProjectsService {
       throw new NotFoundException("Project not found");
     }
 
-    // Get task stats per department tag
+    // Get task stats per tagged department
     const taskStats = await this.prisma.task.groupBy({
-      by: ["status", "departmentTag"],
+      by: ["status", "taggedDepartmentId"],
       where: { projectId },
       _count: true,
     });
@@ -346,7 +346,7 @@ export class ProjectsService {
     // Organize stats by department
     const departmentStats = project.departments.map((pd) => {
       const deptTasks = taskStats.filter(
-        (t) => t.departmentTag === pd.department.name,
+        (t) => t.taggedDepartmentId === pd.department.id,
       );
       const statusBreakdown = deptTasks.reduce(
         (acc, t) => ({ ...acc, [t.status]: t._count }),
