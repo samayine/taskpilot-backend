@@ -1,4 +1,4 @@
-import { PrismaClient, Role } from "@prisma/client";
+import { PrismaClient, Role, TaskStatus, Priority } from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
 import * as bcrypt from "bcrypt";
@@ -193,6 +193,7 @@ async function main() {
     { name: "Content Emp 2", email: "content_emp2@acmecorp.com", deptId: mktDepartment.id, teamId: contentTeam.id },
   ];
 
+  const emps: Record<string, { id: string }> = {};
   for (const empData of employeesToCreate) {
     const emp = await prisma.user.upsert({
       where: { email: empData.email },
@@ -206,7 +207,8 @@ async function main() {
         departmentId: empData.deptId,
       },
     });
-    
+    emps[empData.email] = emp;
+
     // Assign to team using upsert-like logic
     const member = await prisma.teamMember.findUnique({
       where: { userId_teamId: { userId: emp.id, teamId: empData.teamId } },
@@ -219,41 +221,146 @@ async function main() {
   }
   console.log("Employees assigned to teams.");
 
-  // 8. Add Sample Projects and Tasks
-  let websiteProject = await prisma.project.findFirst({ where: { name: "Company Website V2", companyId: company.id } });
+  // 8. Project (cross-department), idempotent
+  let websiteProject = await prisma.project.findFirst({
+    where: { name: "Company Website V2", companyId: company.id },
+  });
   if (!websiteProject) {
     websiteProject = await prisma.project.create({
-      data: { name: "Company Website V2", companyId: company.id, creatorId: ceo.id },
-    });
-    
-    // Only create tasks if the project is brand new to prevent duplicate tasks on multiple seed runs
-    await prisma.task.create({
       data: {
-        title: "Design new homepage layout",
-        description: "Create a modern homepage design using React.",
-        teamId: frontendTeam.id,
-        creatorId: engHead.id,
-        assigneeId: frontendLead.id,
-        projectId: websiteProject.id,
-        status: "IN_PROGRESS",
+        name: "Company Website V2",
+        companyId: company.id,
+        creatorId: ceo.id,
+        departments: {
+          create: [
+            { departmentId: engDepartment.id },
+            { departmentId: mktDepartment.id },
+          ],
+        },
       },
     });
-
-    await prisma.task.create({
-      data: {
-        title: "Setup API Gateway",
-        description: "Implement API Gateway for microservices.",
-        teamId: backendTeam.id,
-        creatorId: engHead.id,
-        assigneeId: backendLead.id,
-        projectId: websiteProject.id,
-        status: "PENDING",
-      },
-    });
-    console.log("Created Projects & Tasks.");
-  } else {
-    console.log("Projects already exist, skipping task creation.");
   }
+
+  // 9. Shared (cross-department) team, idempotent
+  let launchSquad = await prisma.team.findFirst({
+    where: { name: "Website Launch Squad", companyId: company.id },
+  });
+  if (!launchSquad) {
+    launchSquad = await prisma.team.create({
+      data: {
+        name: "Website Launch Squad",
+        description: "Cross-department squad driving the website launch",
+        companyId: company.id,
+        isShared: true,
+        teamLeadId: frontendLead.id,
+        sharedDepartments: {
+          create: [
+            { departmentId: engDepartment.id },
+            { departmentId: mktDepartment.id },
+          ],
+        },
+      },
+    });
+  }
+  // Members from both departments
+  for (const uid of [
+    emps["fe_emp1@acmecorp.com"].id,
+    emps["content_emp1@acmecorp.com"].id,
+  ]) {
+    const m = await prisma.teamMember.findUnique({
+      where: { userId_teamId: { userId: uid, teamId: launchSquad.id } },
+    });
+    if (!m)
+      await prisma.teamMember.create({
+        data: { userId: uid, teamId: launchSquad.id },
+      });
+  }
+  console.log("Shared team ready.");
+
+  // 10. Reset tasks (idempotent) — cascades clean comments/history/notifications
+  await prisma.task.deleteMany({ where: { team: { companyId: company.id } } });
+
+  const D = 86_400_000;
+  const now = Date.now();
+
+  type T = {
+    title: string;
+    description?: string;
+    teamId: string;
+    creatorId: string;
+    assigneeId: string;
+    status: TaskStatus;
+    priority: Priority;
+    due?: number; // ms offset from now (negative = overdue)
+    deptId?: string;
+    projectId?: string;
+  };
+
+  const taskSeed: T[] = [
+    // ── Frontend team (Engineering) ──
+    { title: "Design new homepage layout", description: "Modern, responsive homepage using React + Tailwind.", teamId: frontendTeam.id, creatorId: frontendLead.id, assigneeId: emps["fe_emp1@acmecorp.com"].id, status: TaskStatus.IN_PROGRESS, priority: Priority.HIGH, due: 3 * D, deptId: engDepartment.id, projectId: websiteProject.id },
+    { title: "Fix navbar responsiveness", description: "Navbar breaks below 360px.", teamId: frontendTeam.id, creatorId: frontendLead.id, assigneeId: emps["fe_emp2@acmecorp.com"].id, status: TaskStatus.PENDING, priority: Priority.MEDIUM, due: 5 * D, deptId: engDepartment.id },
+    { title: "Build login & register pages", description: "Wire up auth forms with validation.", teamId: frontendTeam.id, creatorId: frontendLead.id, assigneeId: emps["fe_emp1@acmecorp.com"].id, status: TaskStatus.SUBMITTED, priority: Priority.URGENT, due: -1 * D, deptId: engDepartment.id, projectId: websiteProject.id },
+    { title: "Refactor dashboard charts", description: "Swap to Recharts and memoize.", teamId: frontendTeam.id, creatorId: frontendLead.id, assigneeId: emps["fe_emp2@acmecorp.com"].id, status: TaskStatus.REVIEW, priority: Priority.MEDIUM, due: 2 * D, deptId: engDepartment.id },
+    { title: "Set up shared component library", description: "Buttons, inputs, dialogs.", teamId: frontendTeam.id, creatorId: frontendLead.id, assigneeId: emps["fe_emp1@acmecorp.com"].id, status: TaskStatus.COMPLETED, priority: Priority.LOW, due: -4 * D, deptId: engDepartment.id },
+    { title: "Dark mode color bug", description: "Contrast fails in dark mode on cards.", teamId: frontendTeam.id, creatorId: frontendLead.id, assigneeId: emps["fe_emp2@acmecorp.com"].id, status: TaskStatus.REJECTED, priority: Priority.HIGH, deptId: engDepartment.id },
+
+    // ── Backend team (Engineering) ──
+    { title: "Set up API Gateway", description: "Route microservices behind a gateway.", teamId: backendTeam.id, creatorId: backendLead.id, assigneeId: emps["be_emp1@acmecorp.com"].id, status: TaskStatus.PENDING, priority: Priority.HIGH, due: 6 * D, deptId: engDepartment.id, projectId: websiteProject.id },
+    { title: "Database migration scripts", description: "Add idempotent migrations.", teamId: backendTeam.id, creatorId: backendLead.id, assigneeId: emps["be_emp2@acmecorp.com"].id, status: TaskStatus.IN_PROGRESS, priority: Priority.MEDIUM, due: 1 * D, deptId: engDepartment.id },
+    { title: "Add request rate limiting", description: "Throttle auth endpoints.", teamId: backendTeam.id, creatorId: backendLead.id, assigneeId: emps["be_emp1@acmecorp.com"].id, status: TaskStatus.SUBMITTED, priority: Priority.URGENT, due: 0, deptId: engDepartment.id },
+    { title: "Write integration tests", description: "Cover task lifecycle endpoints.", teamId: backendTeam.id, creatorId: backendLead.id, assigneeId: emps["be_emp2@acmecorp.com"].id, status: TaskStatus.REVIEW, priority: Priority.MEDIUM, due: 4 * D, deptId: engDepartment.id },
+    { title: "Optimize slow queries", description: "Add indexes, remove N+1.", teamId: backendTeam.id, creatorId: backendLead.id, assigneeId: emps["be_emp1@acmecorp.com"].id, status: TaskStatus.COMPLETED, priority: Priority.LOW, due: -6 * D, deptId: engDepartment.id },
+
+    // ── Content team (Marketing) ──
+    { title: "Write Q3 blog series", description: "Four posts on product launches.", teamId: contentTeam.id, creatorId: contentLead.id, assigneeId: emps["content_emp1@acmecorp.com"].id, status: TaskStatus.IN_PROGRESS, priority: Priority.MEDIUM, due: 7 * D, deptId: mktDepartment.id },
+    { title: "Launch monthly newsletter", description: "Template + first send.", teamId: contentTeam.id, creatorId: contentLead.id, assigneeId: emps["content_emp2@acmecorp.com"].id, status: TaskStatus.PENDING, priority: Priority.LOW, due: 10 * D, deptId: mktDepartment.id },
+    { title: "Social media calendar", description: "Plan Q3 posts.", teamId: contentTeam.id, creatorId: contentLead.id, assigneeId: emps["content_emp1@acmecorp.com"].id, status: TaskStatus.SUBMITTED, priority: Priority.HIGH, due: -2 * D, deptId: mktDepartment.id },
+    { title: "Brand guidelines doc", description: "Logo, colors, typography.", teamId: contentTeam.id, creatorId: contentLead.id, assigneeId: emps["content_emp2@acmecorp.com"].id, status: TaskStatus.COMPLETED, priority: Priority.MEDIUM, due: -8 * D, deptId: mktDepartment.id },
+
+    // ── Shared team (cross-department, tagged) ──
+    { title: "Landing page marketing copy", description: "Hero + features copy.", teamId: launchSquad.id, creatorId: frontendLead.id, assigneeId: emps["content_emp1@acmecorp.com"].id, status: TaskStatus.IN_PROGRESS, priority: Priority.HIGH, due: 2 * D, deptId: mktDepartment.id, projectId: websiteProject.id },
+    { title: "Landing page build", description: "Implement the marketing landing page.", teamId: launchSquad.id, creatorId: frontendLead.id, assigneeId: emps["fe_emp1@acmecorp.com"].id, status: TaskStatus.SUBMITTED, priority: Priority.URGENT, due: 1 * D, deptId: engDepartment.id, projectId: websiteProject.id },
+  ];
+
+  const created: Record<string, { id: string }> = {};
+  for (const t of taskSeed) {
+    const task = await prisma.task.create({
+      data: {
+        title: t.title,
+        description: t.description,
+        teamId: t.teamId,
+        creatorId: t.creatorId,
+        assigneeId: t.assigneeId,
+        status: t.status,
+        priority: t.priority,
+        dueDate: t.due === undefined ? null : new Date(now + t.due),
+        taggedDepartmentId: t.deptId ?? null,
+        projectId: t.projectId ?? null,
+      },
+    });
+    created[t.title] = task;
+  }
+  console.log(`Created ${taskSeed.length} tasks across all statuses.`);
+
+  // 11. Comments + history on a couple of tasks for a rich detail view
+  const loginTask = created["Build login & register pages"];
+  if (loginTask) {
+    await prisma.comment.createMany({
+      data: [
+        { taskId: loginTask.id, authorId: emps["fe_emp1@acmecorp.com"].id, content: "Submitted for review — added Zod validation and error toasts." },
+        { taskId: loginTask.id, authorId: frontendLead.id, content: "Thanks! Reviewing now, will check the password rules." },
+      ],
+    });
+    await prisma.taskHistory.createMany({
+      data: [
+        { taskId: loginTask.id, changedById: frontendLead.id, action: "CREATED", newValue: { status: "PENDING" } },
+        { taskId: loginTask.id, changedById: emps["fe_emp1@acmecorp.com"].id, action: "STATUS_CHANGED", oldValue: { status: "PENDING" }, newValue: { status: "IN_PROGRESS" } },
+        { taskId: loginTask.id, changedById: emps["fe_emp1@acmecorp.com"].id, action: "STATUS_CHANGED", oldValue: { status: "IN_PROGRESS" }, newValue: { status: "SUBMITTED" } },
+      ],
+    });
+  }
+  console.log("Sample comments & history added.");
 
   console.log("Seeding finished.");
 }

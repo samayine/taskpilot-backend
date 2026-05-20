@@ -1,8 +1,8 @@
-import { ApiProperty } from "@nestjs/swagger";
-import { IsEnum, IsNotEmpty } from "class-validator";
+import { ApiPropertyOptional } from "@nestjs/swagger";
+import { IsEnum, IsOptional } from "class-validator";
 
 /**
- * Decision the Team Lead makes when reviewing a submitted task.
+ * Decision the reviewer makes when reviewing a submitted task.
  */
 export enum ReviewDecision {
   APPROVE = "APPROVE",
@@ -10,8 +10,12 @@ export enum ReviewDecision {
 }
 
 export class ReviewTaskDto {
-  @ApiProperty({ enum: ReviewDecision, example: ReviewDecision.APPROVE })
+  /**
+   * Required only for the REVIEW → COMPLETED/REJECTED step.
+   * Omit it to move a SUBMITTED task into REVIEW.
+   */
+  @ApiPropertyOptional({ enum: ReviewDecision, example: ReviewDecision.APPROVE })
   @IsEnum(ReviewDecision, { message: "Decision must be APPROVE or REJECT" })
-  @IsNotEmpty()
-  decision: ReviewDecision;
+  @IsOptional()
+  decision?: ReviewDecision;
 }

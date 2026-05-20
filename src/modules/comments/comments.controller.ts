@@ -26,25 +26,37 @@ export class CommentsController {
 
   /** Add a comment to a task. */
   @ApiOperation({ summary: "Add a comment to a task." })
-  @Roles(Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE)
   @Post()
   create(
     @Param("taskId") taskId: string,
     @Body() dto: CreateCommentDto,
     @Request() req,
   ) {
-    return this.commentsService.create(taskId, req.user.userId, dto);
+    return this.commentsService.create(
+      taskId,
+      req.user.userId,
+      req.user.role,
+      req.user.companyId,
+      dto,
+    );
   }
 
   /** Get all comments on a task (paginated). */
   @ApiOperation({ summary: "Get all comments on a task (paginated)." })
-  @Roles(Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE)
   @Get()
   findAll(
     @Param("taskId") taskId: string,
     @Query() pagination: PaginationDto,
     @Request() req,
   ) {
-    return this.commentsService.findByTask(taskId, req.user.userId, pagination);
+    return this.commentsService.findByTask(
+      taskId,
+      req.user.userId,
+      req.user.role,
+      req.user.companyId,
+      pagination,
+    );
   }
 }

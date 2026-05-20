@@ -229,7 +229,8 @@ export class TasksService {
         where,
         include: {
           assignee: { select: { id: true, fullName: true, email: true } },
-          team: { select: { id: true, name: true } },
+          team: { select: { id: true, name: true, isShared: true } },
+          taggedDepartment: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: "desc" },
         ...paginateArgs(filters),
@@ -254,8 +255,10 @@ export class TasksService {
       this.prisma.task.findMany({
         where,
         include: {
-          team: { select: { id: true, name: true } },
+          team: { select: { id: true, name: true, isShared: true } },
           creator: { select: { id: true, fullName: true } },
+          assignee: { select: { id: true, fullName: true, email: true } },
+          taggedDepartment: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: "desc" },
         ...paginateArgs(filters),
@@ -433,6 +436,12 @@ export class TasksService {
       );
     }
 
+    if (!dto.decision) {
+      throw new BadRequestException(
+        "A decision (APPROVE or REJECT) is required to complete the review",
+      );
+    }
+
     const newStatus =
       dto.decision === ReviewDecision.APPROVE
         ? TaskStatus.COMPLETED
@@ -534,8 +543,9 @@ export class TasksService {
         include: {
           assignee: { select: { id: true, fullName: true, email: true } },
           creator: { select: { id: true, fullName: true, email: true } },
-          team: { select: { id: true, name: true } },
+          team: { select: { id: true, name: true, isShared: true } },
           project: { select: { id: true, name: true } },
+          taggedDepartment: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: "desc" },
         ...paginateArgs(filters),
@@ -566,6 +576,7 @@ export class TasksService {
           },
         },
         project: { select: { id: true, name: true } },
+        taggedDepartment: { select: { id: true, name: true } },
       },
     });
 
