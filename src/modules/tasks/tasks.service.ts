@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import { PrismaService } from "src/prisma/prisma.service";
 import { CreateTaskDto } from "./dto/create-task.dto";
+import { UpdateTaskDto } from "./dto/update-task.dto";
 import { UpdateTaskStatusDto } from "./dto/update-task-status.dto";
 import { ReviewTaskDto, ReviewDecision } from "./dto/review-task.dto";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -32,6 +33,7 @@ const EMPLOYEE_TRANSITIONS: Record<TaskStatus, TaskStatus | null> = {
   REVIEW: null,         // team lead territory
   COMPLETED: null,      // terminal state
   REJECTED: TaskStatus.IN_PROGRESS,
+  CANCELLED: null,      // terminal — only a manager can reopen
 };
 
 @Injectable()
@@ -489,6 +491,270 @@ export class TasksService {
     );
 
     return updated;
+  }
+
+  // ──────────────────────────────────────────────
+  // Lead / Dept Head / CEO: edit & reassign a task
+  // ──────────────────────────────────────────────
+
+  private readonly taskDetailInclude = {
+    assignee: { select: { id: true, fullName: true, email: true } },
+    creator: { select: { id: true, fullName: true } },
+    team: { select: { id: true, name: true, isShared: true } },
+    project: { select: { id: true, name: true } },
+    taggedDepartment: { select: { id: true, name: true } },
+  };
+
+  async updateTask(
+    taskId: string,
+    dto: UpdateTaskDto,
+    userId: string,
+    companyId: string,
+    callerRole: Role,
+  ) {
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      include: { team: true },
+    });
+    if (!task || task.team.companyId !== companyId) {
+      throw new NotFoundException("Task not found");
+    }
+    if (!(await this.canActAsLead(task.team, userId, callerRole))) {
+      throw new ForbiddenException(
+        "You do not have permission to edit this task",
+      );
+    }
+
+    const data: Prisma.TaskUpdateInput = {};
+    const changed: Record<string, any> = {};
+    if (dto.title !== undefined) {
+      data.title = dto.title;
+      changed.title = dto.title;
+    }
+    if (dto.description !== undefined) {
+      data.description = dto.description;
+      changed.description = true;
+    }
+    if (dto.priority !== undefined) {
+      data.priority = dto.priority;
+      changed.priority = dto.priority;
+    }
+    if (dto.dueDate !== undefined) {
+      data.dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
+      changed.dueDate = dto.dueDate ?? null;
+    }
+
+    // Reassignment
+    let reassigned = false;
+    if (dto.assigneeId && dto.assigneeId !== task.assigneeId) {
+      const assignee = await this.prisma.user.findUnique({
+        where: { id: dto.assigneeId },
+      });
+      if (!assignee || assignee.companyId !== companyId) {
+        throw new NotFoundException("Assignee not found");
+      }
+      if (assignee.role !== Role.EMPLOYEE) {
+        throw new BadRequestException("Tasks can only be assigned to employees");
+      }
+      const member = await this.prisma.teamMember.findUnique({
+        where: {
+          userId_teamId: { userId: dto.assigneeId, teamId: task.teamId },
+        },
+      });
+      if (!member) {
+        throw new BadRequestException(
+          "Assignee is not a member of the task's team",
+        );
+      }
+      data.assignee = { connect: { id: dto.assigneeId } };
+      reassigned = true;
+    }
+
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException("No fields to update");
+    }
+
+    const updated = await this.prisma.task.update({
+      where: { id: taskId },
+      data,
+      include: this.taskDetailInclude,
+    });
+
+    if (reassigned) {
+      await this.taskHistory.record(
+        taskId,
+        userId,
+        TaskAction.REASSIGNED,
+        { assigneeId: task.assigneeId },
+        { assigneeId: dto.assigneeId },
+      );
+      await this.notifications.notify(
+        dto.assigneeId!,
+        NotificationType.TASK_ASSIGNED,
+        `You have been assigned the task "${updated.title}"`,
+        taskId,
+      );
+    }
+    if (Object.keys(changed).length > 0) {
+      await this.taskHistory.record(
+        taskId,
+        userId,
+        TaskAction.UPDATED,
+        null,
+        changed,
+      );
+    }
+    await this.activityLog.logAction(
+      userId,
+      companyId,
+      "TASK_UPDATED",
+      "Task",
+      taskId,
+      changed,
+    );
+
+    return updated;
+  }
+
+  // ──────────────────────────────────────────────
+  // Lead / Dept Head / CEO: cancel a task (terminal "won't do")
+  // ──────────────────────────────────────────────
+
+  async cancelTask(
+    taskId: string,
+    userId: string,
+    companyId: string,
+    callerRole: Role,
+  ) {
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      include: { team: true },
+    });
+    if (!task || task.team.companyId !== companyId) {
+      throw new NotFoundException("Task not found");
+    }
+    if (!(await this.canActAsLead(task.team, userId, callerRole))) {
+      throw new ForbiddenException(
+        "You do not have permission to cancel this task",
+      );
+    }
+    if (task.status === TaskStatus.CANCELLED) {
+      throw new BadRequestException("Task is already cancelled");
+    }
+    if (task.status === TaskStatus.COMPLETED) {
+      throw new BadRequestException("Completed tasks cannot be cancelled");
+    }
+
+    const updated = await this.prisma.task.update({
+      where: { id: taskId },
+      data: { status: TaskStatus.CANCELLED },
+      include: this.taskDetailInclude,
+    });
+    await this.taskHistory.record(
+      taskId,
+      userId,
+      TaskAction.STATUS_CHANGED,
+      { status: task.status },
+      { status: TaskStatus.CANCELLED },
+    );
+    await this.activityLog.logAction(
+      userId,
+      companyId,
+      "TASK_CANCELLED",
+      "Task",
+      taskId,
+      { from: task.status },
+    );
+    return updated;
+  }
+
+  // ──────────────────────────────────────────────
+  // Lead / Dept Head / CEO: reopen a completed/cancelled task
+  // ──────────────────────────────────────────────
+
+  async reopenTask(
+    taskId: string,
+    userId: string,
+    companyId: string,
+    callerRole: Role,
+  ) {
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      include: { team: true },
+    });
+    if (!task || task.team.companyId !== companyId) {
+      throw new NotFoundException("Task not found");
+    }
+    if (!(await this.canActAsLead(task.team, userId, callerRole))) {
+      throw new ForbiddenException(
+        "You do not have permission to reopen this task",
+      );
+    }
+    if (
+      task.status !== TaskStatus.COMPLETED &&
+      task.status !== TaskStatus.CANCELLED
+    ) {
+      throw new BadRequestException(
+        "Only completed or cancelled tasks can be reopened",
+      );
+    }
+
+    const updated = await this.prisma.task.update({
+      where: { id: taskId },
+      data: { status: TaskStatus.IN_PROGRESS },
+      include: this.taskDetailInclude,
+    });
+    await this.taskHistory.record(
+      taskId,
+      userId,
+      TaskAction.STATUS_CHANGED,
+      { status: task.status },
+      { status: TaskStatus.IN_PROGRESS },
+    );
+    await this.activityLog.logAction(
+      userId,
+      companyId,
+      "TASK_REOPENED",
+      "Task",
+      taskId,
+      { from: task.status },
+    );
+    return updated;
+  }
+
+  // ──────────────────────────────────────────────
+  // Lead / Dept Head / CEO: permanently delete a task
+  // ──────────────────────────────────────────────
+
+  async deleteTask(
+    taskId: string,
+    userId: string,
+    companyId: string,
+    callerRole: Role,
+  ) {
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      include: { team: true },
+    });
+    if (!task || task.team.companyId !== companyId) {
+      throw new NotFoundException("Task not found");
+    }
+    if (!(await this.canActAsLead(task.team, userId, callerRole))) {
+      throw new ForbiddenException(
+        "You do not have permission to delete this task",
+      );
+    }
+
+    await this.prisma.task.delete({ where: { id: taskId } });
+    await this.activityLog.logAction(
+      userId,
+      companyId,
+      "TASK_DELETED",
+      "Task",
+      taskId,
+      { title: task.title },
+    );
+    return { message: "Task deleted successfully" };
   }
 
   // ──────────────────────────────────────────────

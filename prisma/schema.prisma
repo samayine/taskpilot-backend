@@ -210,6 +210,7 @@ enum TaskStatus {
   REVIEW
   COMPLETED
   REJECTED
+  CANCELLED
 }
 
 enum Priority {
@@ -287,6 +288,7 @@ enum TaskAction {
   STATUS_CHANGED
   REVIEWED
   REASSIGNED
+  UPDATED
 }
 
 model TaskHistory {

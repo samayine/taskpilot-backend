@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -11,6 +12,7 @@ import {
 } from "@nestjs/common";
 import { TasksService } from "./tasks.service";
 import { CreateTaskDto } from "./dto/create-task.dto";
+import { UpdateTaskDto } from "./dto/update-task.dto";
 import { UpdateTaskStatusDto } from "./dto/update-task-status.dto";
 import { ReviewTaskDto } from "./dto/review-task.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
@@ -72,6 +74,63 @@ export class TasksController {
     return this.tasksService.reviewTask(
       taskId,
       dto,
+      req.user.userId,
+      req.user.companyId,
+      req.user.role,
+    );
+  }
+
+  /** Team Lead, Department Head, or CEO edits/reassigns a task. */
+  @ApiOperation({ summary: "Edit a task (and optionally reassign it)." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
+  @Patch(":id")
+  update(
+    @Param("id") taskId: string,
+    @Body() dto: UpdateTaskDto,
+    @Request() req,
+  ) {
+    return this.tasksService.updateTask(
+      taskId,
+      dto,
+      req.user.userId,
+      req.user.companyId,
+      req.user.role,
+    );
+  }
+
+  /** Team Lead, Department Head, or CEO cancels a task (won't do). */
+  @ApiOperation({ summary: "Cancel a task." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
+  @Patch(":id/cancel")
+  cancel(@Param("id") taskId: string, @Request() req) {
+    return this.tasksService.cancelTask(
+      taskId,
+      req.user.userId,
+      req.user.companyId,
+      req.user.role,
+    );
+  }
+
+  /** Team Lead, Department Head, or CEO reopens a completed/cancelled task. */
+  @ApiOperation({ summary: "Reopen a completed or cancelled task." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
+  @Patch(":id/reopen")
+  reopen(@Param("id") taskId: string, @Request() req) {
+    return this.tasksService.reopenTask(
+      taskId,
+      req.user.userId,
+      req.user.companyId,
+      req.user.role,
+    );
+  }
+
+  /** Team Lead, Department Head, or CEO permanently deletes a task. */
+  @ApiOperation({ summary: "Delete a task." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
+  @Delete(":id")
+  remove(@Param("id") taskId: string, @Request() req) {
+    return this.tasksService.deleteTask(
+      taskId,
       req.user.userId,
       req.user.companyId,
       req.user.role,
