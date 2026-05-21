@@ -36,6 +36,10 @@ model User {
   mustChangePassword Boolean  @default(false)
   createdAt          DateTime @default(now())
 
+  // Self-service password reset (stores a SHA-256 hash of the token, never the raw token)
+  passwordResetToken  String?
+  passwordResetExpiry DateTime?
+
   companyId String
   company   Company @relation(fields: [companyId], references: [id])
 
