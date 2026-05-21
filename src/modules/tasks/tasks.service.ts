@@ -7,6 +7,7 @@ import {
 import { PrismaService } from "src/prisma/prisma.service";
 import { CreateTaskDto } from "./dto/create-task.dto";
 import { UpdateTaskDto } from "./dto/update-task.dto";
+import { ReorderTasksDto } from "./dto/reorder-tasks.dto";
 import { UpdateTaskStatusDto } from "./dto/update-task-status.dto";
 import { ReviewTaskDto, ReviewDecision } from "./dto/review-task.dto";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -234,7 +235,7 @@ export class TasksService {
           team: { select: { id: true, name: true, isShared: true } },
           taggedDepartment: { select: { id: true, name: true } },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ position: "asc" }, { createdAt: "desc" }],
         ...paginateArgs(filters),
       }),
       this.prisma.task.count({ where }),
@@ -262,7 +263,7 @@ export class TasksService {
           assignee: { select: { id: true, fullName: true, email: true } },
           taggedDepartment: { select: { id: true, name: true } },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ position: "asc" }, { createdAt: "desc" }],
         ...paginateArgs(filters),
       }),
       this.prisma.task.count({ where }),
@@ -758,6 +759,53 @@ export class TasksService {
   }
 
   // ──────────────────────────────────────────────
+  // Lead / Dept Head / CEO: persist a column's manual order
+  // ──────────────────────────────────────────────
+
+  async reorderTasks(
+    dto: ReorderTasksDto,
+    userId: string,
+    companyId: string,
+    callerRole: Role,
+  ) {
+    const tasks = await this.prisma.task.findMany({
+      where: { id: { in: dto.orderedIds } },
+      include: { team: true },
+    });
+
+    if (tasks.length !== new Set(dto.orderedIds).size) {
+      throw new NotFoundException("One or more tasks were not found");
+    }
+
+    for (const task of tasks) {
+      if (task.team.companyId !== companyId) {
+        throw new NotFoundException("Task not found");
+      }
+      if (task.status !== dto.status) {
+        throw new BadRequestException(
+          "All tasks must belong to the column being reordered",
+        );
+      }
+      if (!(await this.canActAsLead(task.team, userId, callerRole))) {
+        throw new ForbiddenException(
+          "You do not have permission to reorder these tasks",
+        );
+      }
+    }
+
+    await this.prisma.$transaction(
+      dto.orderedIds.map((id, index) =>
+        this.prisma.task.update({
+          where: { id },
+          data: { position: index },
+        }),
+      ),
+    );
+
+    return { message: "Order updated" };
+  }
+
+  // ──────────────────────────────────────────────
   // Department Head: View all tasks across department teams
   // ──────────────────────────────────────────────
 
@@ -813,7 +861,7 @@ export class TasksService {
           project: { select: { id: true, name: true } },
           taggedDepartment: { select: { id: true, name: true } },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ position: "asc" }, { createdAt: "desc" }],
         ...paginateArgs(filters),
       }),
       this.prisma.task.count({ where }),

@@ -13,6 +13,7 @@ import {
 import { TasksService } from "./tasks.service";
 import { CreateTaskDto } from "./dto/create-task.dto";
 import { UpdateTaskDto } from "./dto/update-task.dto";
+import { ReorderTasksDto } from "./dto/reorder-tasks.dto";
 import { UpdateTaskStatusDto } from "./dto/update-task-status.dto";
 import { ReviewTaskDto } from "./dto/review-task.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
@@ -73,6 +74,19 @@ export class TasksController {
   ) {
     return this.tasksService.reviewTask(
       taskId,
+      dto,
+      req.user.userId,
+      req.user.companyId,
+      req.user.role,
+    );
+  }
+
+  /** Team Lead, Department Head, or CEO persists a column's manual order. */
+  @ApiOperation({ summary: "Reorder tasks within a board column." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
+  @Patch("reorder")
+  reorder(@Body() dto: ReorderTasksDto, @Request() req) {
+    return this.tasksService.reorderTasks(
       dto,
       req.user.userId,
       req.user.companyId,

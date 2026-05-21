@@ -250,6 +250,9 @@ model Task {
   taggedDepartmentId String?
   taggedDepartment   Department? @relation("TaskTaggedDept", fields: [taggedDepartmentId], references: [id], onDelete: SetNull)
 
+  // Manual ordering within a board column (lower = higher in the column)
+  position Float @default(0)
+
   notifications Notification[]
   history       TaskHistory[]
   comments      Comment[]
