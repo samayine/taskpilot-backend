@@ -246,13 +246,25 @@ export class DepartmentsService {
       throw new NotFoundException("Team lead user not found");
     }
 
+    if (teamLead.isBlocked) {
+      throw new BadRequestException("Cannot assign a blocked user as team lead");
+    }
+
+    // CEO and ASSISTANT cannot be assigned as team lead.
+    // EMPLOYEE is allowed — they will be promoted to TEAM_LEAD below.
+    if (teamLead.role === Role.CEO || teamLead.role === Role.ASSISTANT) {
+      throw new BadRequestException(
+        "CEO and ASSISTANT users cannot be assigned as team lead",
+      );
+    }
+
+    // The team lead must belong to this department (unless they are already a DEPT_HEAD or TEAM_LEAD)
     if (
-      teamLead.role !== Role.TEAM_LEAD &&
-      teamLead.role !== Role.CEO &&
-      teamLead.role !== Role.DEPARTMENT_HEAD
+      teamLead.role === Role.EMPLOYEE &&
+      teamLead.departmentId !== departmentId
     ) {
       throw new BadRequestException(
-        "Designated user must have the TEAM_LEAD, CEO, or DEPARTMENT_HEAD role",
+        "The selected team lead must belong to this department",
       );
     }
 
@@ -271,6 +283,14 @@ export class DepartmentsService {
         department: { select: { id: true, name: true } },
       },
     });
+
+    // Promote EMPLOYEE to TEAM_LEAD (mirrors TeamsService.createTeam behaviour)
+    if (teamLead.role === Role.EMPLOYEE) {
+      await this.prisma.user.update({
+        where: { id: dto.teamLeadId },
+        data: { role: Role.TEAM_LEAD },
+      });
+    }
 
     await this.activityLog.logAction(
       userId,

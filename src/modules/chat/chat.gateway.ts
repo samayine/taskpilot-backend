@@ -70,6 +70,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   /**
    * Client joins a channel room to receive real-time messages.
+   * Membership is verified before granting access to the room.
    */
   @SubscribeMessage("joinChannel")
   async handleJoinChannel(
@@ -78,9 +79,30 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     if (!data?.channelId) return;
 
+    const userId = client.data.userId;
+    const companyId = client.data.companyId;
+
+    // Verify the channel exists and belongs to this company
+    const channel = await this.chatService.findChannelForGateway(
+      data.channelId,
+      companyId,
+    );
+    if (!channel) {
+      return { event: "error", data: { message: "Channel not found" } };
+    }
+
+    // Verify the user is a member of this channel
+    const isMember = await this.chatService.isChannelMember(
+      data.channelId,
+      userId,
+    );
+    if (!isMember) {
+      return { event: "error", data: { message: "You are not a member of this channel" } };
+    }
+
     await client.join(`channel:${data.channelId}`);
     this.logger.log(
-      `User ${client.data.userId} joined channel room: ${data.channelId}`,
+      `User ${userId} joined channel room: ${data.channelId}`,
     );
 
     return { event: "joinedChannel", data: { channelId: data.channelId } };

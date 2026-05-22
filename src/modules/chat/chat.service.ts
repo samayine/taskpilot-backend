@@ -178,6 +178,24 @@ export class ChatService {
   }
 
   // ──────────────────────────────────────────────
+  // Gateway helpers (called from ChatGateway)
+  // ──────────────────────────────────────────────
+
+  async findChannelForGateway(channelId: string, companyId: string) {
+    const channel = await this.prisma.chatChannel.findUnique({
+      where: { id: channelId },
+    });
+    return channel && channel.companyId === companyId ? channel : null;
+  }
+
+  async isChannelMember(channelId: string, userId: string): Promise<boolean> {
+    const membership = await this.prisma.chatChannelMember.findUnique({
+      where: { channelId_userId: { channelId, userId } },
+    });
+    return !!membership;
+  }
+
+  // ──────────────────────────────────────────────
   // Add a member to a channel
   // ──────────────────────────────────────────────
 

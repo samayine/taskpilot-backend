@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -51,9 +52,9 @@ export class TasksController {
     );
   }
 
-  /** Team Lead (or CEO) views all tasks across their teams (filterable). */
-  @ApiOperation({ summary: "Team Lead (or CEO) views all tasks across their teams (filterable)." })
-  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
+  /** Team Lead views all tasks across teams they lead (filterable). CEO and DEPT_HEAD use GET /tasks/department. */
+  @ApiOperation({ summary: "Team Lead views all tasks across teams they lead (filterable)." })
+  @Roles(Role.TEAM_LEAD)
   @Get("team")
   findTeamTasks(@Query() filters: TaskFilterDto, @Request() req) {
     return this.tasksService.findTeamTasks(
@@ -243,7 +244,12 @@ export class TasksController {
   @ApiOperation({ summary: "CEO, Department Head, or Team Lead can view a task's full change history." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
   @Get(":id/history")
-  getHistory(@Param("id") taskId: string) {
-    return this.taskHistoryService.getHistoryForTask(taskId);
+  async getHistory(@Param("id") taskId: string, @Request() req) {
+    const history = await this.taskHistoryService.getHistoryForTask(
+      taskId,
+      req.user.companyId,
+    );
+    if (!history) throw new NotFoundException("Task not found");
+    return history;
   }
 }
