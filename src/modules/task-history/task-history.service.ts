@@ -39,8 +39,19 @@ export class TaskHistoryService {
 
   /**
    * Get full history for a task (newest first).
+   * Scoped to the given companyId to prevent cross-tenant access.
    */
-  async getHistoryForTask(taskId: string) {
+  async getHistoryForTask(taskId: string, companyId: string) {
+    // Verify the task belongs to this company before returning any history.
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      select: { team: { select: { companyId: true } } },
+    });
+
+    if (!task || task.team.companyId !== companyId) {
+      return null; // caller handles the 404
+    }
+
     return this.prisma.taskHistory.findMany({
       where: { taskId },
       include: {
