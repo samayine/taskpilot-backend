@@ -112,6 +112,45 @@ export class TasksController {
     );
   }
 
+  /** Watch a task (follow its updates). */
+  @ApiOperation({ summary: "Watch (follow) a task." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Post(":id/watch")
+  watch(@Param("id") taskId: string, @Request() req) {
+    return this.tasksService.watchTask(
+      taskId,
+      req.user.userId,
+      req.user.companyId,
+      req.user.role,
+    );
+  }
+
+  /** Stop watching a task. */
+  @ApiOperation({ summary: "Unwatch a task." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Delete(":id/watch")
+  unwatch(@Param("id") taskId: string, @Request() req) {
+    return this.tasksService.unwatchTask(
+      taskId,
+      req.user.userId,
+      req.user.companyId,
+      req.user.role,
+    );
+  }
+
+  /** List a task's watchers. */
+  @ApiOperation({ summary: "List a task's watchers." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Get(":id/watchers")
+  watchers(@Param("id") taskId: string, @Request() req) {
+    return this.tasksService.getWatchers(
+      taskId,
+      req.user.userId,
+      req.user.companyId,
+      req.user.role,
+    );
+  }
+
   /** Team Lead, Department Head, or CEO cancels a task (won't do). */
   @ApiOperation({ summary: "Cancel a task." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)

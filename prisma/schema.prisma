@@ -60,6 +60,7 @@ model User {
   chatMemberships    ChatChannelMember[]
   chatMessages       ChatMessage[]
   documents          Document[]         @relation("DocumentUploader")
+  taskWatchers       TaskWatcher[]
 
   @@index([companyId])
 }
@@ -261,6 +262,7 @@ model Task {
   history       TaskHistory[]
   comments      Comment[]
   subtasks      Subtask[]
+  watchers      TaskWatcher[]
 
   @@index([teamId])
   @@index([assigneeId])
@@ -284,6 +286,23 @@ model Subtask {
   task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([taskId])
+}
+
+// ──────────────────────────────────────────────
+// Task Watchers (followers)
+// ──────────────────────────────────────────────
+
+model TaskWatcher {
+  id        String   @id @default(uuid())
+  taskId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([userId])
 }
 
 // ──────────────────────────────────────────────

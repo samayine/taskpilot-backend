@@ -180,7 +180,10 @@ export class TasksService {
       },
     });
 
-    // 4. Notify the assignee
+    // 4. Auto-watch: creator and assignee follow the task
+    await this.addWatchers(task.id, [creatorId, dto.assigneeId]);
+
+    // 5. Notify the assignee
     await this.notifications.notify(
       dto.assigneeId,
       NotificationType.TASK_ASSIGNED,
@@ -321,22 +324,32 @@ export class TasksService {
 
     // Notify the team lead when employee submits
     if (dto.status === TaskStatus.SUBMITTED) {
+      const msg = `Task "${updatedTask.title}" has been submitted for review`;
       await this.notifications.notify(
         updatedTask.team.teamLeadId,
         NotificationType.TASK_SUBMITTED,
-        `Task "${updatedTask.title}" has been submitted for review`,
+        msg,
         taskId,
       );
+      await this.notifyWatchers(taskId, NotificationType.TASK_SUBMITTED, msg, [
+        userId,
+        updatedTask.team.teamLeadId,
+      ]);
     }
 
     // Notify team lead when employee starts a task
     if (dto.status === TaskStatus.IN_PROGRESS && task.status === TaskStatus.PENDING) {
+      const msg = `Task "${updatedTask.title}" has been started`;
       await this.notifications.notify(
         updatedTask.team.teamLeadId,
         NotificationType.TASK_STARTED,
-        `Task "${updatedTask.title}" has been started`,
+        msg,
         taskId,
       );
+      await this.notifyWatchers(taskId, NotificationType.TASK_STARTED, msg, [
+        userId,
+        updatedTask.team.teamLeadId,
+      ]);
     }
     // Record history for status change
     await this.taskHistory.record(
@@ -406,11 +419,18 @@ export class TasksService {
       });
 
       // Notify the employee that their task is being reviewed
+      const reviewMsg = `Task "${task.title}" is now being reviewed`;
       await this.notifications.notify(
         task.assigneeId,
         NotificationType.TASK_IN_REVIEW,
-        `Your task "${task.title}" is now being reviewed`,
+        reviewMsg,
         taskId,
+      );
+      await this.notifyWatchers(
+        taskId,
+        NotificationType.TASK_IN_REVIEW,
+        reviewMsg,
+        [userId, task.assigneeId],
       );
 
       // Record history
@@ -474,6 +494,10 @@ export class TasksService {
         : `Your task "${task.title}" has been rejected. Please rework and resubmit.`;
 
     await this.notifications.notify(task.assigneeId, notifType, message, taskId);
+    await this.notifyWatchers(taskId, notifType, message, [
+      userId,
+      task.assigneeId,
+    ]);
 
     // Record history
     await this.taskHistory.record(
@@ -586,6 +610,7 @@ export class TasksService {
     });
 
     if (reassigned) {
+      await this.addWatchers(taskId, [dto.assigneeId!]);
       await this.taskHistory.record(
         taskId,
         userId,
@@ -815,6 +840,108 @@ export class TasksService {
   }
 
   // ──────────────────────────────────────────────
+  // Watchers (followers)
+  // ──────────────────────────────────────────────
+
+  // Verify the caller may view a task (assignee, creator, team lead, dept head
+  // over the team, or CEO) and return the task with its team.
+  private async assertCanAccessTask(
+    taskId: string,
+    userId: string,
+    companyId: string,
+    role: Role,
+  ) {
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      include: { team: true },
+    });
+    if (!task || task.team.companyId !== companyId) {
+      throw new NotFoundException("Task not found");
+    }
+    const allowed =
+      role === Role.CEO ||
+      task.assigneeId === userId ||
+      task.creatorId === userId ||
+      (await this.canActAsLead(task.team, userId, role));
+    if (!allowed) {
+      throw new ForbiddenException("You do not have access to this task");
+    }
+    return task;
+  }
+
+  // Add users as watchers (idempotent).
+  private async addWatchers(taskId: string, userIds: string[]) {
+    const unique = [...new Set(userIds)];
+    if (unique.length === 0) return;
+    await this.prisma.taskWatcher.createMany({
+      data: unique.map((userId) => ({ taskId, userId })),
+      skipDuplicates: true,
+    });
+  }
+
+  // Notify all watchers of a task except the excluded users (actor + anyone
+  // already notified directly).
+  private async notifyWatchers(
+    taskId: string,
+    type: NotificationType,
+    message: string,
+    excludeIds: string[],
+  ) {
+    const watchers = await this.prisma.taskWatcher.findMany({
+      where: { taskId },
+      select: { userId: true },
+    });
+    const exclude = new Set(excludeIds);
+    await Promise.all(
+      watchers
+        .filter((w) => !exclude.has(w.userId))
+        .map((w) => this.notifications.notify(w.userId, type, message, taskId)),
+    );
+  }
+
+  async watchTask(
+    taskId: string,
+    userId: string,
+    companyId: string,
+    role: Role,
+  ) {
+    await this.assertCanAccessTask(taskId, userId, companyId, role);
+    await this.prisma.taskWatcher.upsert({
+      where: { taskId_userId: { taskId, userId } },
+      create: { taskId, userId },
+      update: {},
+    });
+    return { watching: true };
+  }
+
+  async unwatchTask(
+    taskId: string,
+    userId: string,
+    companyId: string,
+    role: Role,
+  ) {
+    await this.assertCanAccessTask(taskId, userId, companyId, role);
+    await this.prisma.taskWatcher.deleteMany({ where: { taskId, userId } });
+    return { watching: false };
+  }
+
+  async getWatchers(
+    taskId: string,
+    userId: string,
+    companyId: string,
+    role: Role,
+  ) {
+    await this.assertCanAccessTask(taskId, userId, companyId, role);
+    return this.prisma.taskWatcher.findMany({
+      where: { taskId },
+      include: {
+        user: { select: { id: true, fullName: true, email: true, role: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+  }
+
+  // ──────────────────────────────────────────────
   // Department Head: View all tasks across department teams
   // ──────────────────────────────────────────────
 
@@ -900,6 +1027,8 @@ export class TasksService {
         },
         project: { select: { id: true, name: true } },
         taggedDepartment: { select: { id: true, name: true } },
+        watchers: { where: { userId }, select: { id: true } },
+        _count: { select: { watchers: true } },
       },
     });
 
@@ -949,7 +1078,15 @@ export class TasksService {
       }
     }
 
-    return task;
+    const { watchers, _count, ...rest } = task as typeof task & {
+      watchers: { id: string }[];
+      _count: { watchers: number };
+    };
+    return {
+      ...rest,
+      isWatching: watchers.length > 0,
+      watcherCount: _count.watchers,
+    };
   }
 
   // ──────────────────────────────────────────────
