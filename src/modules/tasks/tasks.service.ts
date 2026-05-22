@@ -172,6 +172,7 @@ export class TasksService {
         creatorId,
         assigneeId: dto.assigneeId,
         taggedDepartmentId,
+        projectId: dto.projectId,
       },
       include: {
         assignee: { select: { id: true, fullName: true, email: true } },
