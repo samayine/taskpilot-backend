@@ -261,6 +261,10 @@ model Task {
   // Manual ordering within a board column (lower = higher in the column)
   position Float @default(0)
 
+  // Set when a reviewer requests changes (task sent back to IN_PROGRESS).
+  // Cleared when the employee resubmits.
+  changesRequested Boolean @default(false)
+
   notifications Notification[]
   history       TaskHistory[]
   comments      Comment[]

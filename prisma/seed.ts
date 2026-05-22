@@ -294,33 +294,34 @@ async function main() {
     due?: number; // ms offset from now (negative = overdue)
     deptId?: string;
     projectId?: string;
+    changesRequested?: boolean;
   };
 
   const taskSeed: T[] = [
     // ── Frontend team (Engineering) ──
     { title: "Design new homepage layout", description: "Modern, responsive homepage using React + Tailwind.", teamId: frontendTeam.id, creatorId: frontendLead.id, assigneeId: emps["fe_emp1@acmecorp.com"].id, status: TaskStatus.IN_PROGRESS, priority: Priority.HIGH, due: 3 * D, deptId: engDepartment.id, projectId: websiteProject.id },
     { title: "Fix navbar responsiveness", description: "Navbar breaks below 360px.", teamId: frontendTeam.id, creatorId: frontendLead.id, assigneeId: emps["fe_emp2@acmecorp.com"].id, status: TaskStatus.PENDING, priority: Priority.MEDIUM, due: 5 * D, deptId: engDepartment.id },
-    { title: "Build login & register pages", description: "Wire up auth forms with validation.", teamId: frontendTeam.id, creatorId: frontendLead.id, assigneeId: emps["fe_emp1@acmecorp.com"].id, status: TaskStatus.SUBMITTED, priority: Priority.URGENT, due: -1 * D, deptId: engDepartment.id, projectId: websiteProject.id },
+    { title: "Build login & register pages", description: "Wire up auth forms with validation.", teamId: frontendTeam.id, creatorId: frontendLead.id, assigneeId: emps["fe_emp1@acmecorp.com"].id, status: TaskStatus.REVIEW, priority: Priority.URGENT, due: -1 * D, deptId: engDepartment.id, projectId: websiteProject.id },
     { title: "Refactor dashboard charts", description: "Swap to Recharts and memoize.", teamId: frontendTeam.id, creatorId: frontendLead.id, assigneeId: emps["fe_emp2@acmecorp.com"].id, status: TaskStatus.REVIEW, priority: Priority.MEDIUM, due: 2 * D, deptId: engDepartment.id },
     { title: "Set up shared component library", description: "Buttons, inputs, dialogs.", teamId: frontendTeam.id, creatorId: frontendLead.id, assigneeId: emps["fe_emp1@acmecorp.com"].id, status: TaskStatus.COMPLETED, priority: Priority.LOW, due: -4 * D, deptId: engDepartment.id },
-    { title: "Dark mode color bug", description: "Contrast fails in dark mode on cards.", teamId: frontendTeam.id, creatorId: frontendLead.id, assigneeId: emps["fe_emp2@acmecorp.com"].id, status: TaskStatus.REJECTED, priority: Priority.HIGH, deptId: engDepartment.id },
+    { title: "Dark mode color bug", description: "Contrast fails in dark mode on cards.", teamId: frontendTeam.id, creatorId: frontendLead.id, assigneeId: emps["fe_emp2@acmecorp.com"].id, status: TaskStatus.IN_PROGRESS, changesRequested: true, priority: Priority.HIGH, deptId: engDepartment.id },
 
     // ── Backend team (Engineering) ──
     { title: "Set up API Gateway", description: "Route microservices behind a gateway.", teamId: backendTeam.id, creatorId: backendLead.id, assigneeId: emps["be_emp1@acmecorp.com"].id, status: TaskStatus.PENDING, priority: Priority.HIGH, due: 6 * D, deptId: engDepartment.id, projectId: websiteProject.id },
     { title: "Database migration scripts", description: "Add idempotent migrations.", teamId: backendTeam.id, creatorId: backendLead.id, assigneeId: emps["be_emp2@acmecorp.com"].id, status: TaskStatus.IN_PROGRESS, priority: Priority.MEDIUM, due: 1 * D, deptId: engDepartment.id },
-    { title: "Add request rate limiting", description: "Throttle auth endpoints.", teamId: backendTeam.id, creatorId: backendLead.id, assigneeId: emps["be_emp1@acmecorp.com"].id, status: TaskStatus.SUBMITTED, priority: Priority.URGENT, due: 0, deptId: engDepartment.id },
+    { title: "Add request rate limiting", description: "Throttle auth endpoints.", teamId: backendTeam.id, creatorId: backendLead.id, assigneeId: emps["be_emp1@acmecorp.com"].id, status: TaskStatus.REVIEW, priority: Priority.URGENT, due: 0, deptId: engDepartment.id },
     { title: "Write integration tests", description: "Cover task lifecycle endpoints.", teamId: backendTeam.id, creatorId: backendLead.id, assigneeId: emps["be_emp2@acmecorp.com"].id, status: TaskStatus.REVIEW, priority: Priority.MEDIUM, due: 4 * D, deptId: engDepartment.id },
     { title: "Optimize slow queries", description: "Add indexes, remove N+1.", teamId: backendTeam.id, creatorId: backendLead.id, assigneeId: emps["be_emp1@acmecorp.com"].id, status: TaskStatus.COMPLETED, priority: Priority.LOW, due: -6 * D, deptId: engDepartment.id },
 
     // ── Content team (Marketing) ──
     { title: "Write Q3 blog series", description: "Four posts on product launches.", teamId: contentTeam.id, creatorId: contentLead.id, assigneeId: emps["content_emp1@acmecorp.com"].id, status: TaskStatus.IN_PROGRESS, priority: Priority.MEDIUM, due: 7 * D, deptId: mktDepartment.id },
     { title: "Launch monthly newsletter", description: "Template + first send.", teamId: contentTeam.id, creatorId: contentLead.id, assigneeId: emps["content_emp2@acmecorp.com"].id, status: TaskStatus.PENDING, priority: Priority.LOW, due: 10 * D, deptId: mktDepartment.id },
-    { title: "Social media calendar", description: "Plan Q3 posts.", teamId: contentTeam.id, creatorId: contentLead.id, assigneeId: emps["content_emp1@acmecorp.com"].id, status: TaskStatus.SUBMITTED, priority: Priority.HIGH, due: -2 * D, deptId: mktDepartment.id },
+    { title: "Social media calendar", description: "Plan Q3 posts.", teamId: contentTeam.id, creatorId: contentLead.id, assigneeId: emps["content_emp1@acmecorp.com"].id, status: TaskStatus.REVIEW, priority: Priority.HIGH, due: -2 * D, deptId: mktDepartment.id },
     { title: "Brand guidelines doc", description: "Logo, colors, typography.", teamId: contentTeam.id, creatorId: contentLead.id, assigneeId: emps["content_emp2@acmecorp.com"].id, status: TaskStatus.COMPLETED, priority: Priority.MEDIUM, due: -8 * D, deptId: mktDepartment.id },
 
     // ── Shared team (cross-department, tagged) ──
     { title: "Landing page marketing copy", description: "Hero + features copy.", teamId: launchSquad.id, creatorId: frontendLead.id, assigneeId: emps["content_emp1@acmecorp.com"].id, status: TaskStatus.IN_PROGRESS, priority: Priority.HIGH, due: 2 * D, deptId: mktDepartment.id, projectId: websiteProject.id },
-    { title: "Landing page build", description: "Implement the marketing landing page.", teamId: launchSquad.id, creatorId: frontendLead.id, assigneeId: emps["fe_emp1@acmecorp.com"].id, status: TaskStatus.SUBMITTED, priority: Priority.URGENT, due: 1 * D, deptId: engDepartment.id, projectId: websiteProject.id },
+    { title: "Landing page build", description: "Implement the marketing landing page.", teamId: launchSquad.id, creatorId: frontendLead.id, assigneeId: emps["fe_emp1@acmecorp.com"].id, status: TaskStatus.REVIEW, priority: Priority.URGENT, due: 1 * D, deptId: engDepartment.id, projectId: websiteProject.id },
   ];
 
   const created: Record<string, { id: string }> = {};
@@ -356,7 +357,7 @@ async function main() {
       data: [
         { taskId: loginTask.id, changedById: frontendLead.id, action: "CREATED", newValue: { status: "PENDING" } },
         { taskId: loginTask.id, changedById: emps["fe_emp1@acmecorp.com"].id, action: "STATUS_CHANGED", oldValue: { status: "PENDING" }, newValue: { status: "IN_PROGRESS" } },
-        { taskId: loginTask.id, changedById: emps["fe_emp1@acmecorp.com"].id, action: "STATUS_CHANGED", oldValue: { status: "IN_PROGRESS" }, newValue: { status: "SUBMITTED" } },
+        { taskId: loginTask.id, changedById: emps["fe_emp1@acmecorp.com"].id, action: "STATUS_CHANGED", oldValue: { status: "IN_PROGRESS" }, newValue: { status: "REVIEW" } },
       ],
     });
   }

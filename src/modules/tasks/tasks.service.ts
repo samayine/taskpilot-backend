@@ -28,13 +28,13 @@ import { NotificationType, Prisma, Role, TaskAction, TaskStatus } from "@prisma/
  *  REJECTED     → IN_PROGRESS   (Employee reworks)
  */
 const EMPLOYEE_TRANSITIONS: Record<TaskStatus, TaskStatus | null> = {
-  PENDING: TaskStatus.IN_PROGRESS,
-  IN_PROGRESS: TaskStatus.SUBMITTED,
-  SUBMITTED: null,      // employee cannot change once submitted
-  REVIEW: null,         // team lead territory
-  COMPLETED: null,      // terminal state
-  REJECTED: TaskStatus.IN_PROGRESS,
-  CANCELLED: null,      // terminal — only a manager can reopen
+  PENDING: TaskStatus.IN_PROGRESS, // start
+  IN_PROGRESS: TaskStatus.REVIEW, // submit (goes straight to In Review)
+  SUBMITTED: null, // legacy state, no longer produced
+  REVIEW: null, // reviewer territory
+  COMPLETED: null, // terminal
+  REJECTED: null, // legacy state, no longer produced
+  CANCELLED: null, // terminal — only a manager can reopen
 };
 
 @Injectable()
@@ -319,14 +319,18 @@ export class TasksService {
 
     const updatedTask = await this.prisma.task.update({
       where: { id: taskId },
-      data: { status: dto.status },
+      data: {
+        status: dto.status,
+        // Submitting (to REVIEW) clears any "changes requested" flag
+        ...(dto.status === TaskStatus.REVIEW ? { changesRequested: false } : {}),
+      },
       include: {
         team: { select: { id: true, name: true, teamLeadId: true } },
       },
     });
 
-    // Notify the team lead when employee submits
-    if (dto.status === TaskStatus.SUBMITTED) {
+    // Notify the team lead when employee submits for review
+    if (dto.status === TaskStatus.REVIEW) {
       const msg = `Task "${updatedTask.title}" has been submitted for review`;
       await this.notifications.notify(
         updatedTask.team.teamLeadId,
@@ -408,60 +412,10 @@ export class TasksService {
       );
     }
 
-    // Task must be in SUBMITTED status for team lead to move to REVIEW,
-    // or in REVIEW status for team lead to approve/reject
-    if (task.status === TaskStatus.SUBMITTED) {
-      // Move to REVIEW first
-      const updated = await this.prisma.task.update({
-        where: { id: taskId },
-        data: { status: TaskStatus.REVIEW },
-        include: {
-          assignee: { select: { id: true, fullName: true, email: true } },
-          team: { select: { id: true, name: true } },
-        },
-      });
-
-      // Notify the employee that their task is being reviewed
-      const reviewMsg = `Task "${task.title}" is now being reviewed`;
-      await this.notifications.notify(
-        task.assigneeId,
-        NotificationType.TASK_IN_REVIEW,
-        reviewMsg,
-        taskId,
-      );
-      await this.notifyWatchers(
-        taskId,
-        NotificationType.TASK_IN_REVIEW,
-        reviewMsg,
-        [userId, task.assigneeId],
-      );
-
-      // Record history
-      await this.taskHistory.record(
-        taskId,
-        userId,
-        TaskAction.REVIEWED,
-        { status: TaskStatus.SUBMITTED },
-        { status: TaskStatus.REVIEW },
-      );
-
-      // Activity log
-      await this.activityLog.logAction(
-        userId,
-        companyId,
-        "TASK_REVIEWED",
-        "Task",
-        taskId,
-        { from: TaskStatus.SUBMITTED, to: TaskStatus.REVIEW },
-      );
-
-      this.notifications.emitTaskEvent(companyId);
-      return updated;
-    }
-
+    // Reviews happen on a task that is In Review
     if (task.status !== TaskStatus.REVIEW) {
       throw new BadRequestException(
-        `Cannot review a task with status ${task.status}. Task must be SUBMITTED or REVIEW.`,
+        `Cannot review a task with status ${task.status}. Task must be In Review.`,
       );
     }
 
@@ -471,30 +425,28 @@ export class TasksService {
       );
     }
 
-    const newStatus =
-      dto.decision === ReviewDecision.APPROVE
-        ? TaskStatus.COMPLETED
-        : TaskStatus.REJECTED;
+    // Approve → COMPLETED. Reject → back to IN_PROGRESS with "changes requested".
+    const approve = dto.decision === ReviewDecision.APPROVE;
+    const newStatus = approve ? TaskStatus.COMPLETED : TaskStatus.IN_PROGRESS;
 
     const updated = await this.prisma.task.update({
       where: { id: taskId },
-      data: { status: newStatus },
+      data: { status: newStatus, changesRequested: !approve },
       include: {
         assignee: { select: { id: true, fullName: true, email: true } },
         team: { select: { id: true, name: true } },
+        labels: { select: { id: true, name: true, color: true } },
       },
     });
 
     // Notify the employee of the decision
-    const notifType =
-      dto.decision === ReviewDecision.APPROVE
-        ? NotificationType.TASK_APPROVED
-        : NotificationType.TASK_REJECTED;
+    const notifType = approve
+      ? NotificationType.TASK_APPROVED
+      : NotificationType.TASK_REJECTED;
 
-    const message =
-      dto.decision === ReviewDecision.APPROVE
-        ? `Your task "${task.title}" has been approved! 🎉`
-        : `Your task "${task.title}" has been rejected. Please rework and resubmit.`;
+    const message = approve
+      ? `Your task "${task.title}" has been approved! 🎉`
+      : `Changes requested on "${task.title}". Please update and resubmit.`;
 
     await this.notifications.notify(task.assigneeId, notifType, message, taskId);
     await this.notifyWatchers(taskId, notifType, message, [
@@ -502,7 +454,6 @@ export class TasksService {
       task.assigneeId,
     ]);
 
-    // Record history
     await this.taskHistory.record(
       taskId,
       userId,
@@ -511,7 +462,6 @@ export class TasksService {
       { status: newStatus, decision: dto.decision },
     );
 
-    // Activity log
     await this.activityLog.logAction(
       userId,
       companyId,
@@ -737,7 +687,7 @@ export class TasksService {
 
     const updated = await this.prisma.task.update({
       where: { id: taskId },
-      data: { status: TaskStatus.IN_PROGRESS },
+      data: { status: TaskStatus.IN_PROGRESS, changesRequested: false },
       include: this.taskDetailInclude,
     });
     await this.taskHistory.record(
