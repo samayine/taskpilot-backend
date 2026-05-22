@@ -260,12 +260,30 @@ model Task {
   notifications Notification[]
   history       TaskHistory[]
   comments      Comment[]
+  subtasks      Subtask[]
 
   @@index([teamId])
   @@index([assigneeId])
   @@index([creatorId])
   @@index([projectId])
   @@index([taggedDepartmentId])
+}
+
+// ──────────────────────────────────────────────
+// Subtasks (checklist items)
+// ──────────────────────────────────────────────
+
+model Subtask {
+  id        String   @id @default(uuid())
+  title     String
+  isDone    Boolean  @default(false)
+  position  Float    @default(0)
+  createdAt DateTime @default(now())
+
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
 }
 
 // ──────────────────────────────────────────────

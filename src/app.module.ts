@@ -11,6 +11,7 @@ import { NotificationsModule } from "./modules/notifications/notifications.modul
 import { ActivityLogModule } from "./modules/activity-log/activity-log.module";
 import { CompanyModule } from "./modules/company/company.module";
 import { CommentsModule } from "./modules/comments/comments.module";
+import { SubtasksModule } from "./modules/subtasks/subtasks.module";
 import { DepartmentsModule } from "./modules/departments/departments.module";
 import { ProjectsModule } from "./modules/projects/projects.module";
 import { ChatModule } from "./modules/chat/chat.module";
@@ -42,6 +43,7 @@ import { APP_GUARD } from "@nestjs/core";
     TasksModule,
     NotificationsModule,
     CommentsModule,
+    SubtasksModule,
     DepartmentsModule,
     ProjectsModule,
     ChatModule,
