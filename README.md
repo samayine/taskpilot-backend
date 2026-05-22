@@ -118,12 +118,18 @@ Swagger docs at `http://localhost:8000/api/docs`
 |---|---|---|
 | `POST` | `/auth/register-company` | Register company + CEO account |
 | `POST` | `/auth/login` | Login → JWT token (rate limited: 5/min) |
+| `POST` | `/auth/forgot-password` | Request a password reset email (rate limited: 3/15min) |
+| `POST` | `/auth/reset-password` | Reset password using a one-time token (rate limited: 5/15min) |
 
 ### Users (CEO / ASSISTANT)
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/users` | Create user (DEPARTMENT_HEAD, TEAM_LEAD, EMPLOYEE). Password auto-generated if omitted. |
-| `GET` | `/users` | List all company users (paginated) |
+| `POST` | `/users/assistant` | Create an ASSISTANT account (CEO) |
+| `POST` | `/users` | Create user (DEPARTMENT_HEAD, EMPLOYEE). Password auto-generated if omitted. |
+| `GET` | `/users` | List all company users (paginated, filterable by role/blocked/search) |
+| `GET` | `/users/assignable` | List users assignable to teams (CEO: all, Dept Head: their dept) |
+| `PATCH` | `/users/:id` | Admin-update fullName or role (CEO can change role; ASSISTANT cannot) |
+| `DELETE` | `/users/:id` | Delete a user (blocked if they lead teams, head depts, or have tasks) |
 | `PATCH` | `/users/:id/block` | Block a user |
 | `PATCH` | `/users/:id/unblock` | Unblock a user |
 
@@ -168,14 +174,30 @@ Swagger docs at `http://localhost:8000/api/docs`
 ### Tasks
 | Method | Endpoint | Role | Description |
 |---|---|---|---|
-| `POST` | `/tasks` | CEO, Dept Head, Team Lead | Create and assign a task |
-| `GET` | `/tasks/team` | CEO, Dept Head, Team Lead | View team tasks (paginated, filterable) |
-| `GET` | `/tasks/department` | CEO, Dept Head | View all tasks across department teams |
-| `PATCH` | `/tasks/:id/review` | CEO, Dept Head, Team Lead | Approve or reject a submitted task |
-| `GET` | `/tasks/my` | Employee | View assigned tasks |
-| `PATCH` | `/tasks/:id/status` | Employee | Update task status (strict lifecycle) |
-| `GET` | `/tasks/:id` | All | View single task (ownership-scoped) |
-| `GET` | `/tasks/:id/history` | CEO, Dept Head, Team Lead | Audit trail |
+| `POST` | `/tasks` | CEO, Dept Head, Team Lead | Create and assign a task (optional `projectId` links to a project) |
+| `GET` | `/tasks/team` | Team Lead | View tasks across teams they lead (paginated, filterable) |
+| `GET` | `/tasks/department` | CEO, Dept Head | View all tasks across department teams (paginated, filterable) |
+| `GET` | `/tasks/my` | Employee | View assigned tasks (paginated, filterable) |
+| `PATCH` | `/tasks/reorder` | CEO, Dept Head, Team Lead | Persist manual card order within a board column |
+| `PATCH` | `/tasks/:id` | CEO, Dept Head, Team Lead | Edit task fields or reassign to another employee |
+| `PATCH` | `/tasks/:id/status` | Employee | Update task status (strict lifecycle transitions only) |
+| `PATCH` | `/tasks/:id/review` | CEO, Dept Head, Team Lead | Move to REVIEW, then APPROVE or REJECT |
+| `PATCH` | `/tasks/:id/cancel` | CEO, Dept Head, Team Lead | Cancel a task (terminal — cannot cancel COMPLETED) |
+| `POST` | `/tasks/:id/reopen` | CEO, Dept Head, Team Lead | Reopen a COMPLETED or CANCELLED task to IN_PROGRESS |
+| `DELETE` | `/tasks/:id` | CEO, Dept Head, Team Lead | Permanently delete a task |
+| `GET` | `/tasks/:id` | All | View single task (role-scoped visibility) |
+| `GET` | `/tasks/:id/history` | CEO, Dept Head, Team Lead | Full audit trail (company-scoped) |
+| `POST` | `/tasks/:id/watch` | All | Follow a task (receive watcher notifications) |
+| `DELETE` | `/tasks/:id/watch` | All | Stop following a task |
+| `GET` | `/tasks/:id/watchers` | All | List all watchers for a task |
+
+### Subtasks
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/tasks/:taskId/subtasks` | List checklist items for a task |
+| `POST` | `/tasks/:taskId/subtasks` | Add a subtask (auto-positioned) |
+| `PATCH` | `/tasks/:taskId/subtasks/:id` | Update subtask title or mark done/undone |
+| `DELETE` | `/tasks/:taskId/subtasks/:id` | Remove a subtask |
 
 ### Chat (All Roles)
 | Method | Endpoint | Description |
@@ -198,8 +220,8 @@ Swagger docs at `http://localhost:8000/api/docs`
 ### Task Collaboration
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/tasks/:taskId/comments` | Add a comment (assignee/creator only) |
-| `GET` | `/tasks/:taskId/comments` | List comments (paginated) |
+| `POST` | `/tasks/:taskId/comments` | Add a comment |
+| `GET` | `/tasks/:taskId/comments` | List comments (paginated, newest first) |
 
 ### Company Dashboard (CEO)
 | Method | Endpoint | Description |
