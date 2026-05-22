@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -123,44 +124,77 @@ export class CommentsService {
   ) {
     await this.assertCanAccess(taskId, userId, role, companyId);
 
-    const comment = await this.prisma.comment.create({
-      data: {
-        content: dto.content,
-        taskId,
-        authorId: userId,
-      },
-      include: {
-        author: { select: { id: true, fullName: true, role: true } },
-      },
-    });
+    const content = dto.content?.trim() ?? "";
+    const attachments = dto.attachments ?? [];
+    if (!content && attachments.length === 0) {
+      throw new BadRequestException("A comment needs text or an attachment");
+    }
 
-    // Notify @mentioned users (restricted to task participants; never the author)
+    // Resolve valid @mention targets (task participants, never the author)
     const requested = [...new Set(dto.mentionedUserIds ?? [])].filter(
       (id) => id !== userId,
     );
+    let targets: string[] = [];
     if (requested.length > 0) {
       const allowed = new Set(
         (await this.mentionableUsers(taskId)).map((u) => u.id),
       );
-      const targets = requested.filter((id) => allowed.has(id));
-      if (targets.length > 0) {
-        const task = await this.prisma.task.findUnique({
-          where: { id: taskId },
-          select: { title: true },
-        });
-        const snippet =
-          dto.content.length > 80 ? `${dto.content.slice(0, 80)}…` : dto.content;
-        await Promise.all(
-          targets.map((id) =>
-            this.notifications.notify(
-              id,
-              NotificationType.MENTIONED,
-              `${comment.author.fullName} mentioned you on "${task?.title}": ${snippet}`,
-              taskId,
-            ),
+      targets = requested.filter((id) => allowed.has(id));
+    }
+
+    const comment = await this.prisma.comment.create({
+      data: {
+        content,
+        taskId,
+        authorId: userId,
+        ...(targets.length
+          ? { mentions: { create: targets.map((uid) => ({ userId: uid })) } }
+          : {}),
+        ...(attachments.length
+          ? {
+              attachments: {
+                create: attachments.map((a) => ({
+                  taskId,
+                  uploadedById: userId,
+                  fileName: a.fileName,
+                  fileUrl: a.fileUrl,
+                  mimeType: a.mimeType,
+                  fileSize: a.fileSize,
+                  publicId: a.publicId,
+                })),
+              },
+            }
+          : {}),
+      },
+      include: {
+        author: { select: { id: true, fullName: true, role: true } },
+        mentions: {
+          include: { user: { select: { id: true, fullName: true } } },
+        },
+        attachments: {
+          include: { uploadedBy: { select: { id: true, fullName: true } } },
+        },
+      },
+    });
+
+    // Notify mentioned users
+    if (targets.length > 0) {
+      const task = await this.prisma.task.findUnique({
+        where: { id: taskId },
+        select: { title: true },
+      });
+      const snippet =
+        content.length > 80 ? `${content.slice(0, 80)}…` : content || "an attachment";
+      await Promise.all(
+        targets.map((id) =>
+          this.notifications.notify(
+            id,
+            NotificationType.MENTIONED,
+            `${comment.author.fullName} mentioned you on "${task?.title}": ${snippet}`,
+            taskId,
           ),
-        );
-      }
+        ),
+      );
     }
 
     return comment;
@@ -198,6 +232,12 @@ export class CommentsService {
         where,
         include: {
           author: { select: { id: true, fullName: true, role: true } },
+          mentions: {
+            include: { user: { select: { id: true, fullName: true } } },
+          },
+          attachments: {
+            include: { uploadedBy: { select: { id: true, fullName: true } } },
+          },
         },
         orderBy: { createdAt: "desc" },
         ...paginateArgs(pagination),
