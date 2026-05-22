@@ -47,8 +47,12 @@ export class NotificationsGateway
       client.data.companyId = payload.companyId;
       client.data.role = payload.role;
 
-      // Join a personal room so we can send targeted notifications
+      // Join a personal room (targeted notifications) and a company room
+      // (board-wide broadcasts like task changes).
       await client.join(`user:${payload.sub}`);
+      if (payload.companyId) {
+        await client.join(`company:${payload.companyId}`);
+      }
 
       this.logger.log(
         `Client ${client.id} connected — user: ${payload.sub}, role: ${payload.role}`,
@@ -69,6 +73,13 @@ export class NotificationsGateway
    */
   sendToUser(userId: string, notification: any) {
     this.server.to(`user:${userId}`).emit("notification", notification);
+  }
+
+  /**
+   * Broadcast an event to everyone in a company (e.g. board task changes).
+   */
+  sendToCompany(companyId: string, event: string, payload: any) {
+    this.server.to(`company:${companyId}`).emit(event, payload);
   }
 
   private extractToken(client: Socket): string | null {

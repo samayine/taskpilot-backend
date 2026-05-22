@@ -207,6 +207,7 @@ export class TasksService {
       { title: task.title, assigneeId: dto.assigneeId },
     );
 
+    this.notifications.emitTaskEvent(companyId);
     return task;
   }
 
@@ -356,6 +357,7 @@ export class TasksService {
       { from: task.status, to: dto.status },
     );
 
+    this.notifications.emitTaskEvent(companyId);
     return updatedTask;
   }
 
@@ -430,6 +432,7 @@ export class TasksService {
         { from: TaskStatus.SUBMITTED, to: TaskStatus.REVIEW },
       );
 
+      this.notifications.emitTaskEvent(companyId);
       return updated;
     }
 
@@ -491,6 +494,7 @@ export class TasksService {
       { from: TaskStatus.REVIEW, to: newStatus, decision: dto.decision },
     );
 
+    this.notifications.emitTaskEvent(companyId);
     return updated;
   }
 
@@ -614,6 +618,7 @@ export class TasksService {
       changed,
     );
 
+    this.notifications.emitTaskEvent(companyId);
     return updated;
   }
 
@@ -666,6 +671,7 @@ export class TasksService {
       taskId,
       { from: task.status },
     );
+    this.notifications.emitTaskEvent(companyId);
     return updated;
   }
 
@@ -720,6 +726,7 @@ export class TasksService {
       taskId,
       { from: task.status },
     );
+    this.notifications.emitTaskEvent(companyId);
     return updated;
   }
 
@@ -755,6 +762,7 @@ export class TasksService {
       taskId,
       { title: task.title },
     );
+    this.notifications.emitTaskEvent(companyId);
     return { message: "Task deleted successfully" };
   }
 
@@ -802,6 +810,7 @@ export class TasksService {
       ),
     );
 
+    this.notifications.emitTaskEvent(companyId);
     return { message: "Order updated" };
   }
 

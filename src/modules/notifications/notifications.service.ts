@@ -37,6 +37,14 @@ export class NotificationsService {
   }
 
   /**
+   * Broadcast a board-level task change to all members of a company so their
+   * boards can live-refresh. Fire-and-forget (no persistence).
+   */
+  emitTaskEvent(companyId: string, payload: Record<string, unknown> = {}) {
+    this.gateway.sendToCompany(companyId, "task:changed", payload);
+  }
+
+  /**
    * Get all notifications for a user (newest first).
    */
   async findAllForUser(userId: string, pagination: PaginationDto) {
