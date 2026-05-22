@@ -7,11 +7,50 @@ import { PrismaService } from "src/prisma/prisma.service";
 import { CreateCommentDto } from "./dto/create-comment.dto";
 import { PaginationDto } from "src/common/dto/pagination.dto";
 import { paginateArgs, paginate } from "src/common/helpers/pagination.helper";
-import { Role } from "@prisma/client";
+import { NotificationType, Role } from "@prisma/client";
+import { NotificationsService } from "../notifications/notifications.service";
 
 @Injectable()
 export class CommentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
+
+  /**
+   * Users who can be @mentioned on a task: its team members + team lead +
+   * creator + assignee (deduped).
+   */
+  private async mentionableUsers(taskId: string) {
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      select: {
+        creator: { select: { id: true, fullName: true, role: true } },
+        assignee: { select: { id: true, fullName: true, role: true } },
+        team: {
+          select: {
+            teamLead: { select: { id: true, fullName: true, role: true } },
+            members: {
+              select: {
+                user: { select: { id: true, fullName: true, role: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!task) return [];
+
+    const map = new Map<string, { id: string; fullName: string; role: Role }>();
+    const add = (u?: { id: string; fullName: string; role: Role } | null) => {
+      if (u) map.set(u.id, u);
+    };
+    add(task.creator);
+    add(task.assignee);
+    add(task.team.teamLead);
+    task.team.members.forEach((m) => add(m.user));
+    return [...map.values()];
+  }
 
   /**
    * Verify the caller may view/comment on a task, mirroring task view rules:
@@ -84,7 +123,7 @@ export class CommentsService {
   ) {
     await this.assertCanAccess(taskId, userId, role, companyId);
 
-    return this.prisma.comment.create({
+    const comment = await this.prisma.comment.create({
       data: {
         content: dto.content,
         taskId,
@@ -94,6 +133,50 @@ export class CommentsService {
         author: { select: { id: true, fullName: true, role: true } },
       },
     });
+
+    // Notify @mentioned users (restricted to task participants; never the author)
+    const requested = [...new Set(dto.mentionedUserIds ?? [])].filter(
+      (id) => id !== userId,
+    );
+    if (requested.length > 0) {
+      const allowed = new Set(
+        (await this.mentionableUsers(taskId)).map((u) => u.id),
+      );
+      const targets = requested.filter((id) => allowed.has(id));
+      if (targets.length > 0) {
+        const task = await this.prisma.task.findUnique({
+          where: { id: taskId },
+          select: { title: true },
+        });
+        const snippet =
+          dto.content.length > 80 ? `${dto.content.slice(0, 80)}…` : dto.content;
+        await Promise.all(
+          targets.map((id) =>
+            this.notifications.notify(
+              id,
+              NotificationType.MENTIONED,
+              `${comment.author.fullName} mentioned you on "${task?.title}": ${snippet}`,
+              taskId,
+            ),
+          ),
+        );
+      }
+    }
+
+    return comment;
+  }
+
+  /**
+   * List users that can be @mentioned on a task (excludes the caller).
+   */
+  async getMentionable(
+    taskId: string,
+    userId: string,
+    role: Role,
+    companyId: string,
+  ) {
+    await this.assertCanAccess(taskId, userId, role, companyId);
+    return (await this.mentionableUsers(taskId)).filter((u) => u.id !== userId);
   }
 
   /**

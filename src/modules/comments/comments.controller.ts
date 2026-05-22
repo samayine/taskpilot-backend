@@ -42,6 +42,19 @@ export class CommentsController {
     );
   }
 
+  /** List users that can be @mentioned on this task. */
+  @ApiOperation({ summary: "List users that can be @mentioned on this task." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Get("mentionable")
+  mentionable(@Param("taskId") taskId: string, @Request() req) {
+    return this.commentsService.getMentionable(
+      taskId,
+      req.user.userId,
+      req.user.role,
+      req.user.companyId,
+    );
+  }
+
   /** Get all comments on a task (paginated). */
   @ApiOperation({ summary: "Get all comments on a task (paginated)." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE)
