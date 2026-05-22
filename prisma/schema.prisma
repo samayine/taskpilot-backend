@@ -362,6 +362,7 @@ enum NotificationType {
   TASK_IN_REVIEW
   TASK_APPROVED
   TASK_REJECTED
+  MENTIONED
 }
 
 model Notification {
