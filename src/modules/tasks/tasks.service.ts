@@ -239,6 +239,7 @@ export class TasksService {
           assignee: { select: { id: true, fullName: true, email: true } },
           team: { select: { id: true, name: true, isShared: true } },
           taggedDepartment: { select: { id: true, name: true } },
+          labels: { select: { id: true, name: true, color: true } },
         },
         orderBy: [{ position: "asc" }, { createdAt: "desc" }],
         ...paginateArgs(filters),
@@ -267,6 +268,7 @@ export class TasksService {
           creator: { select: { id: true, fullName: true } },
           assignee: { select: { id: true, fullName: true, email: true } },
           taggedDepartment: { select: { id: true, name: true } },
+          labels: { select: { id: true, name: true, color: true } },
         },
         orderBy: [{ position: "asc" }, { createdAt: "desc" }],
         ...paginateArgs(filters),
@@ -533,6 +535,7 @@ export class TasksService {
     team: { select: { id: true, name: true, isShared: true } },
     project: { select: { id: true, name: true } },
     taggedDepartment: { select: { id: true, name: true } },
+    labels: { select: { id: true, name: true, color: true } },
   };
 
   async updateTask(
@@ -943,6 +946,49 @@ export class TasksService {
   }
 
   // ──────────────────────────────────────────────
+  // Lead / Dept Head / CEO: set a task's labels (replace)
+  // ──────────────────────────────────────────────
+
+  async setLabels(
+    taskId: string,
+    labelIds: string[],
+    userId: string,
+    companyId: string,
+    callerRole: Role,
+  ) {
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      include: { team: true },
+    });
+    if (!task || task.team.companyId !== companyId) {
+      throw new NotFoundException("Task not found");
+    }
+    if (!(await this.canActAsLead(task.team, userId, callerRole))) {
+      throw new ForbiddenException(
+        "You do not have permission to label this task",
+      );
+    }
+
+    const ids = [...new Set(labelIds)];
+    if (ids.length > 0) {
+      const valid = await this.prisma.label.count({
+        where: { id: { in: ids }, companyId },
+      });
+      if (valid !== ids.length) {
+        throw new BadRequestException("One or more labels are invalid");
+      }
+    }
+
+    return this.prisma.task.update({
+      where: { id: taskId },
+      data: { labels: { set: ids.map((id) => ({ id })) } },
+      include: {
+        labels: { select: { id: true, name: true, color: true } },
+      },
+    });
+  }
+
+  // ──────────────────────────────────────────────
   // Department Head: View all tasks across department teams
   // ──────────────────────────────────────────────
 
@@ -997,6 +1043,7 @@ export class TasksService {
           team: { select: { id: true, name: true, isShared: true } },
           project: { select: { id: true, name: true } },
           taggedDepartment: { select: { id: true, name: true } },
+          labels: { select: { id: true, name: true, color: true } },
         },
         orderBy: [{ position: "asc" }, { createdAt: "desc" }],
         ...paginateArgs(filters),
@@ -1028,6 +1075,7 @@ export class TasksService {
         },
         project: { select: { id: true, name: true } },
         taggedDepartment: { select: { id: true, name: true } },
+        labels: { select: { id: true, name: true, color: true } },
         watchers: { where: { userId }, select: { id: true } },
         _count: { select: { watchers: true } },
       },

@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Request,
   UseGuards,
@@ -24,6 +25,14 @@ import { TaskHistoryService } from "../task-history/task-history.service";
 import { ApiTags, ApiBearerAuth, ApiOperation } from "@nestjs/swagger";
 import { TaskFilterDto } from "./dto/task-filter.dto";
 import { Role } from "@prisma/client";
+import { ArrayUnique, IsArray, IsUUID } from "class-validator";
+
+class SetTaskLabelsDto {
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID("all", { each: true })
+  labelIds: string[];
+}
 
 @ApiTags("Tasks")
 @ApiBearerAuth("JWT")
@@ -107,6 +116,24 @@ export class TasksController {
     return this.tasksService.updateTask(
       taskId,
       dto,
+      req.user.userId,
+      req.user.companyId,
+      req.user.role,
+    );
+  }
+
+  /** Set a task's labels (managers). */
+  @ApiOperation({ summary: "Set the labels on a task." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)
+  @Put(":id/labels")
+  setLabels(
+    @Param("id") taskId: string,
+    @Body() dto: SetTaskLabelsDto,
+    @Request() req,
+  ) {
+    return this.tasksService.setLabels(
+      taskId,
+      dto.labelIds,
       req.user.userId,
       req.user.companyId,
       req.user.role,
