@@ -62,6 +62,7 @@ model User {
   documents          Document[]         @relation("DocumentUploader")
   taskWatchers       TaskWatcher[]
   taskAttachments    TaskAttachment[]   @relation("TaskAttachmentUploader")
+  commentMentions    CommentMention[]
 
   @@index([companyId])
 }
@@ -309,7 +310,12 @@ model TaskAttachment {
   uploadedById String
   uploadedBy   User   @relation("TaskAttachmentUploader", fields: [uploadedById], references: [id], onDelete: Cascade)
 
+  // Optional: an attachment can belong to a specific comment (null = task-level)
+  commentId String?
+  comment   Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
   @@index([taskId])
+  @@index([commentId])
 }
 
 // ──────────────────────────────────────────────
@@ -344,7 +350,22 @@ model Comment {
   authorId String
   author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
+  mentions    CommentMention[]
+  attachments TaskAttachment[]
+
   @@index([taskId])
+}
+
+model CommentMention {
+  id        String @id @default(uuid())
+  commentId String
+  userId    String
+
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId])
+  @@index([userId])
 }
 
 // ──────────────────────────────────────────────

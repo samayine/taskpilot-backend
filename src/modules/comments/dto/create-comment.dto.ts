@@ -1,19 +1,21 @@
-import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { ApiPropertyOptional } from "@nestjs/swagger";
+import { Type } from "class-transformer";
 import {
   IsArray,
-  IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
+  ValidateNested,
 } from "class-validator";
+import { CreateAttachmentDto } from "../../attachments/dto/create-attachment.dto";
 
 export class CreateCommentDto {
-  @ApiProperty({ example: "I have pushed the changes to the repository." })
+  @ApiPropertyOptional({ example: "I have pushed the changes." })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(2000)
-  content: string;
+  content?: string;
 
   @ApiPropertyOptional({
     type: [String],
@@ -23,4 +25,14 @@ export class CreateCommentDto {
   @IsArray()
   @IsUUID("all", { each: true })
   mentionedUserIds?: string[];
+
+  @ApiPropertyOptional({
+    type: [CreateAttachmentDto],
+    description: "Files attached to this comment (already uploaded)",
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateAttachmentDto)
+  attachments?: CreateAttachmentDto[];
 }

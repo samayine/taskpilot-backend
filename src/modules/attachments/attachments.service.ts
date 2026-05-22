@@ -103,8 +103,9 @@ export class AttachmentsService {
     companyId: string,
   ) {
     await this.assertCanAccess(taskId, userId, role, companyId);
+    // Task-level attachments only; comment attachments render inline in the thread
     return this.prisma.taskAttachment.findMany({
-      where: { taskId },
+      where: { taskId, commentId: null },
       include: {
         uploadedBy: { select: { id: true, fullName: true } },
       },
