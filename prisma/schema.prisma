@@ -61,6 +61,7 @@ model User {
   chatMessages       ChatMessage[]
   documents          Document[]         @relation("DocumentUploader")
   taskWatchers       TaskWatcher[]
+  taskAttachments    TaskAttachment[]   @relation("TaskAttachmentUploader")
 
   @@index([companyId])
 }
@@ -263,6 +264,7 @@ model Task {
   comments      Comment[]
   subtasks      Subtask[]
   watchers      TaskWatcher[]
+  attachments   TaskAttachment[]
 
   @@index([teamId])
   @@index([assigneeId])
@@ -284,6 +286,28 @@ model Subtask {
 
   taskId String
   task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+// ──────────────────────────────────────────────
+// Task Attachments (files, hosted externally e.g. Cloudinary)
+// ──────────────────────────────────────────────
+
+model TaskAttachment {
+  id        String   @id @default(uuid())
+  fileName  String
+  fileUrl   String
+  mimeType  String?
+  fileSize  Int?
+  publicId  String? // provider id (e.g. Cloudinary) for future deletion
+  createdAt DateTime @default(now())
+
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  uploadedById String
+  uploadedBy   User   @relation("TaskAttachmentUploader", fields: [uploadedById], references: [id], onDelete: Cascade)
 
   @@index([taskId])
 }
