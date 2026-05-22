@@ -23,6 +23,7 @@ model Company {
   projects     Project[]
   chatChannels ChatChannel[]
   documents    Document[]
+  labels       Label[]
 }
 
 model User {
@@ -266,6 +267,7 @@ model Task {
   subtasks      Subtask[]
   watchers      TaskWatcher[]
   attachments   TaskAttachment[]
+  labels        Label[]
 
   @@index([teamId])
   @@index([assigneeId])
@@ -333,6 +335,25 @@ model TaskWatcher {
 
   @@unique([taskId, userId])
   @@index([userId])
+}
+
+// ──────────────────────────────────────────────
+// Labels (company-scoped, applied to tasks)
+// ──────────────────────────────────────────────
+
+model Label {
+  id        String   @id @default(uuid())
+  name      String
+  color     String   @default("gray")
+  createdAt DateTime @default(now())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  tasks Task[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
 }
 
 // ──────────────────────────────────────────────
