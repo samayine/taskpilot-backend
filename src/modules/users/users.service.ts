@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma, Role, User } from "@prisma/client";
@@ -12,12 +13,20 @@ import { CreateAssistantDto } from "./dto/create-assistant.dto";
 import { UpdateProfileDto } from "./dto/update-profile.dto";
 import { PaginationDto } from "src/common/dto/pagination.dto";
 import { paginateArgs, paginate } from "src/common/helpers/pagination.helper";
+import { MailService } from "../mail/mail.service";
+import { ConfigService } from "@nestjs/config";
 import * as bcrypt from "bcrypt";
 import * as crypto from "crypto";
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prismaService: PrismaService) {}
+  private readonly logger = new Logger(UsersService.name);
+
+  constructor(
+    private readonly prismaService: PrismaService,
+    private readonly mailService: MailService,
+    private readonly config: ConfigService,
+  ) {}
 
   // ──────────────────────────────────────────────
   // CEO-only: create an assistant account
@@ -54,6 +63,13 @@ export class UsersService {
     });
 
     const { password, ...safeUser } = user;
+
+    const loginUrl = `${this.config.get<string>("FRONTEND_URL") ?? "http://localhost:3001"}/login`;
+    this.mailService
+      .sendWelcomeEmail(safeUser.email, safeUser.fullName, rawPassword, loginUrl)
+      .catch((err) =>
+        this.logger.error(`Failed to send welcome email to ${safeUser.email}: ${err}`),
+      );
 
     return {
       ...safeUser,
@@ -135,6 +151,13 @@ export class UsersService {
     });
 
     const { password, ...safeUser } = user;
+
+    const loginUrl = `${this.config.get<string>("FRONTEND_URL") ?? "http://localhost:3001"}/login`;
+    this.mailService
+      .sendWelcomeEmail(safeUser.email, safeUser.fullName, rawPassword, loginUrl)
+      .catch((err) =>
+        this.logger.error(`Failed to send welcome email to ${safeUser.email}: ${err}`),
+      );
 
     return {
       ...safeUser,
