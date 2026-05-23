@@ -49,7 +49,7 @@ NestJS 11  →  Prisma 7 ORM  →  PostgreSQL (Neon.tech)
 
 ---
 
-## ⚡ Quick Start
+<!-- ## ⚡ Quick Start -->
 
 ### Option 1: Local Development
 
