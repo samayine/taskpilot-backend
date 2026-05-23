@@ -70,6 +70,56 @@ export class MailService {
   }
 
   /**
+   * Welcome email sent to a newly created user. Contains their temporary
+   * password and a direct link to the sign-in page.
+   */
+  async sendWelcomeEmail(
+    to: string,
+    name: string,
+    password: string,
+    loginUrl: string,
+  ) {
+    await this.transporter.sendMail({
+      from: this.from,
+      to,
+      subject: "Welcome to TaskPilot — your account is ready",
+      text:
+        `Hi ${name},\n\n` +
+        `An account has been created for you on TaskPilot.\n\n` +
+        `Sign-in details:\n` +
+        `  Email:    ${to}\n` +
+        `  Password: ${password}\n\n` +
+        `Sign in here: ${loginUrl}\n\n` +
+        `You will be asked to change your password after your first login.\n`,
+      html: `
+        <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto;">
+          <h2 style="color: #111;">Welcome to TaskPilot</h2>
+          <p>Hi ${name},</p>
+          <p>An account has been created for you. Use the credentials below to sign in.</p>
+          <table style="border-collapse:collapse; margin: 16px 0;">
+            <tr>
+              <td style="padding: 6px 12px 6px 0; color: #666; font-size: 13px;">Email</td>
+              <td style="padding: 6px 0; font-weight: 600;">${to}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 12px 6px 0; color: #666; font-size: 13px;">Password</td>
+              <td style="padding: 6px 0; font-family: monospace; font-size: 15px; letter-spacing: 1px; font-weight: 600;">${password}</td>
+            </tr>
+          </table>
+          <p style="margin: 24px 0;">
+            <a href="${loginUrl}"
+               style="background:#111;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;display:inline-block;">
+              Sign in to TaskPilot
+            </a>
+          </p>
+          <p style="color:#666; font-size:13px;">
+            You will be prompted to set a new password after your first login.
+          </p>
+        </div>`,
+    });
+  }
+
+  /**
    * Security alert sent after a password is successfully reset.
    */
   async sendPasswordChangedAlert(to: string, name: string) {
