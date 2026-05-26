@@ -64,11 +64,18 @@ export class UsersService {
 
     const { password, ...safeUser } = user;
 
-    const loginUrl = `${this.config.get<string>("FRONTEND_URL") ?? "http://localhost:3001"}/login`;
+    const loginUrl = `${this.config.get<string>("FRONTEND_URL") ?? "http://localhost:3000"}/login`;
     this.mailService
-      .sendWelcomeEmail(safeUser.email, safeUser.fullName, rawPassword, loginUrl)
+      .sendWelcomeEmail(
+        safeUser.email,
+        safeUser.fullName,
+        rawPassword,
+        loginUrl,
+      )
       .catch((err) =>
-        this.logger.error(`Failed to send welcome email to ${safeUser.email}: ${err}`),
+        this.logger.error(
+          `Failed to send welcome email to ${safeUser.email}: ${err}`,
+        ),
       );
 
     return {
@@ -154,9 +161,16 @@ export class UsersService {
 
     const loginUrl = `${this.config.get<string>("FRONTEND_URL") ?? "http://localhost:3001"}/login`;
     this.mailService
-      .sendWelcomeEmail(safeUser.email, safeUser.fullName, rawPassword, loginUrl)
+      .sendWelcomeEmail(
+        safeUser.email,
+        safeUser.fullName,
+        rawPassword,
+        loginUrl,
+      )
       .catch((err) =>
-        this.logger.error(`Failed to send welcome email to ${safeUser.email}: ${err}`),
+        this.logger.error(
+          `Failed to send welcome email to ${safeUser.email}: ${err}`,
+        ),
       );
 
     return {
@@ -354,7 +368,11 @@ export class UsersService {
   // CEO: all company users; DEPARTMENT_HEAD: users in departments they head
   // ──────────────────────────────────────────────
 
-  async getAssignableUsers(companyId: string, callerRole: Role, callerId: string) {
+  async getAssignableUsers(
+    companyId: string,
+    callerRole: Role,
+    callerId: string,
+  ) {
     const where: Prisma.UserWhereInput = { companyId };
 
     if (callerRole === Role.DEPARTMENT_HEAD) {
@@ -364,10 +382,7 @@ export class UsersService {
       });
       const deptIds = headedDepts.map((d) => d.id);
       // Include the head themselves so they can be assigned as a team lead.
-      where.OR = [
-        { departmentId: { in: deptIds } },
-        { id: callerId },
-      ];
+      where.OR = [{ departmentId: { in: deptIds } }, { id: callerId }];
     }
 
     const users = await this.prismaService.user.findMany({
