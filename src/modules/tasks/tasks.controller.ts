@@ -73,6 +73,27 @@ export class TasksController {
     );
   }
 
+  /** Team-hub view: all tasks for a specific team. Any team member can call. */
+  @ApiOperation({
+    summary:
+      "List all tasks for a specific team (team-hub view). Accessible to team members, lead, dept-head over team, or CEO.",
+  })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Get("team/:teamId")
+  findTeamHubTasks(
+    @Param("teamId") teamId: string,
+    @Query() filters: TaskFilterDto,
+    @Request() req,
+  ) {
+    return this.tasksService.findTeamHubTasks(
+      teamId,
+      req.user.userId,
+      req.user.role,
+      req.user.companyId,
+      filters,
+    );
+  }
+
   /** Team Lead, Department Head (or CEO) reviews a submitted task (APPROVE or REJECT). */
   @ApiOperation({ summary: "Team Lead, Department Head (or CEO) reviews a submitted task (APPROVE or REJECT)." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD)

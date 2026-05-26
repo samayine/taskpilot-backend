@@ -64,6 +64,7 @@ model User {
   taskWatchers       TaskWatcher[]
   taskAttachments    TaskAttachment[]   @relation("TaskAttachmentUploader")
   commentMentions    CommentMention[]
+  teamAnnouncements  TeamAnnouncement[] @relation("TeamAnnouncementAuthor")
 
   @@index([companyId])
 }
@@ -129,6 +130,7 @@ model Team {
   members    TeamMember[]
   tasks      Task[]
   sharedDepartments TeamDepartment[]
+  announcements     TeamAnnouncement[]
 
   @@index([companyId])
   @@index([teamLeadId])
@@ -160,6 +162,24 @@ model TeamDepartment {
 
   @@unique([teamId, departmentId])
   @@index([departmentId])
+}
+
+// Announcements posted by team-lead / dept-head / CEO to a team's hub.
+model TeamAnnouncement {
+  id        String   @id @default(uuid())
+  content   String
+  pinned    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  teamId String
+  team   Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User @relation("TeamAnnouncementAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([teamId])
+  @@index([authorId])
 }
 
 // ──────────────────────────────────────────────

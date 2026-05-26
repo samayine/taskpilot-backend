@@ -95,16 +95,39 @@ export class TeamsController {
   }
 
   // ─────────────────────────────────────────────
-  // CEO / DEPT_HEAD / TEAM_LEAD: get single team
+  // List "my projects" — teams the caller is associated with
+  // (member / lead / dept-head over it / CEO). Powers the Projects page.
+  // Defined BEFORE :id so "/teams/me" doesn't get parsed as an ID.
+  // ─────────────────────────────────────────────
+
+  /** List teams the caller participates in (one team = one project hub). */
+  @ApiOperation({
+    summary:
+      "List teams the caller participates in (member, lead, dept-head, or CEO).",
+  })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Get("me")
+  findMine(@Query() pagination: PaginationDto, @Request() req) {
+    return this.teamsService.findMyProjects(
+      req.user.companyId,
+      req.user.userId,
+      req.user.role,
+      pagination,
+    );
+  }
+
+  // ─────────────────────────────────────────────
+  // CEO / DEPT_HEAD / TEAM_LEAD / EMPLOYEE (members): get single team
   // ─────────────────────────────────────────────
 
   /**
    * CEO: any team.
-   * DEPARTMENT_HEAD: teams in their department.
-   * TEAM_LEAD: only teams they lead.
+   * DEPARTMENT_HEAD: teams in their department (or a member of).
+   * TEAM_LEAD: teams they lead (or a member of).
+   * EMPLOYEE: teams they are a member of.
    */
   @ApiOperation({ summary: "Get a single team (scoped by role)." })
-  @Roles(Role.CEO, Role.TEAM_LEAD, Role.DEPARTMENT_HEAD)
+  @Roles(Role.CEO, Role.TEAM_LEAD, Role.DEPARTMENT_HEAD, Role.EMPLOYEE)
   @Get(":id")
   findOne(@Param("id") id: string, @Request() req) {
     return this.teamsService.findOne(

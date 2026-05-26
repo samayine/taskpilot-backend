@@ -18,6 +18,7 @@ import { DepartmentsModule } from "./modules/departments/departments.module";
 import { ProjectsModule } from "./modules/projects/projects.module";
 import { ChatModule } from "./modules/chat/chat.module";
 import { DocumentsModule } from "./modules/documents/documents.module";
+import { TeamAnnouncementsModule } from "./modules/team-announcements/team-announcements.module";
 import { MailModule } from "./modules/mail/mail.module";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { APP_GUARD } from "@nestjs/core";
@@ -52,6 +53,7 @@ import { APP_GUARD } from "@nestjs/core";
     ProjectsModule,
     ChatModule,
     DocumentsModule,
+    TeamAnnouncementsModule,
   ],
   controllers: [AppController],
   providers: [

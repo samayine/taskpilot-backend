@@ -263,7 +263,74 @@ export class TeamsService {
   }
 
   // ──────────────────────────────────────────────
-  // Get single team — with scoping for DEPT_HEAD
+  // List "my projects" — teams the caller is associated with
+  // (member, lead, dept-head over it, or CEO who owns everything).
+  // Used by the Projects page where every team = a project hub.
+  // ──────────────────────────────────────────────
+
+  async findMyProjects(
+    companyId: string,
+    callerId: string,
+    callerRole: Role,
+    pagination: PaginationDto,
+  ) {
+    let where: any = { companyId };
+
+    if (callerRole === Role.CEO) {
+      // CEO sees every team in the company.
+    } else if (callerRole === Role.ASSISTANT) {
+      // Assistants don't participate in team-based work.
+      return paginate([], 0, pagination);
+    } else if (callerRole === Role.DEPARTMENT_HEAD) {
+      const headed = await this.prisma.department.findMany({
+        where: { headId: callerId, companyId },
+        select: { id: true },
+      });
+      const deptIds = headed.map((d) => d.id);
+      where = {
+        companyId,
+        OR: [
+          { departmentId: { in: deptIds } },
+          { isShared: true, sharedDepartments: { some: { departmentId: { in: deptIds } } } },
+          { teamLeadId: callerId },
+          { members: { some: { userId: callerId } } },
+        ],
+      };
+    } else {
+      // TEAM_LEAD or EMPLOYEE: teams they lead OR are a member of.
+      where = {
+        companyId,
+        OR: [
+          { teamLeadId: callerId },
+          { members: { some: { userId: callerId } } },
+        ],
+      };
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.team.findMany({
+        where,
+        include: {
+          teamLead: {
+            select: { id: true, fullName: true, email: true, role: true },
+          },
+          department: { select: { id: true, name: true } },
+          sharedDepartments: {
+            include: { department: { select: { id: true, name: true } } },
+          },
+          _count: { select: { members: true, tasks: true, announcements: true } },
+        },
+        orderBy: [{ createdAt: "desc" }],
+        ...paginateArgs(pagination),
+      }),
+      this.prisma.team.count({ where }),
+    ]);
+
+    return paginate(data, total, pagination);
+  }
+
+  // ──────────────────────────────────────────────
+  // Get single team — with scoping for DEPT_HEAD / EMPLOYEE membership
   // ──────────────────────────────────────────────
 
   async findOne(
@@ -293,14 +360,43 @@ export class TeamsService {
     }
 
     // DEPARTMENT_HEAD — can only see teams in their own departments (or shared
-    // teams that involve one of their departments)
+    // teams that involve one of their departments). Fall through to membership
+    // check if not managing — a dept-head might also just be a team member.
     if (callerRole === Role.DEPARTMENT_HEAD) {
-      await this.assertDeptHeadManages(team, callerId);
+      const headed = await this.prisma.department.findMany({
+        where: { headId: callerId },
+        select: { id: true },
+      });
+      const deptIds = new Set(headed.map((d) => d.id));
+      const manages = team.isShared
+        ? team.sharedDepartments.some((sd) => deptIds.has(sd.departmentId))
+        : !!team.departmentId && deptIds.has(team.departmentId);
+      if (!manages) {
+        const member = team.members.some((m) => m.userId === callerId);
+        if (!member) {
+          throw new ForbiddenException(
+            "You can only view teams in departments you head",
+          );
+        }
+      }
     }
 
-    // TEAM_LEAD — can only see their own team
+    // TEAM_LEAD — must lead it OR be a member of it.
     if (callerRole === Role.TEAM_LEAD && team.teamLeadId !== callerId) {
-      throw new ForbiddenException("You can only view teams you lead");
+      const member = team.members.some((m) => m.userId === callerId);
+      if (!member) {
+        throw new ForbiddenException("You can only view teams you lead or are a member of");
+      }
+    }
+
+    // EMPLOYEE — must be a member of it.
+    if (callerRole === Role.EMPLOYEE) {
+      const member = team.members.some((m) => m.userId === callerId);
+      if (!member) {
+        throw new ForbiddenException(
+          "You do not have permission to access this resource",
+        );
+      }
     }
 
     return team;

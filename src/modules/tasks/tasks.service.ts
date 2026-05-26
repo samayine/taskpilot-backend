@@ -251,6 +251,66 @@ export class TasksService {
   }
 
   // ──────────────────────────────────────────────
+  // Team hub: All tasks in a specific team (any team member, lead, dept-head, CEO)
+  // ──────────────────────────────────────────────
+
+  async findTeamHubTasks(
+    teamId: string,
+    userId: string,
+    role: Role,
+    companyId: string,
+    filters: TaskFilterDto,
+  ) {
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+      include: { sharedDepartments: { select: { departmentId: true } } },
+    });
+    if (!team || team.companyId !== companyId) {
+      throw new NotFoundException("Team not found");
+    }
+
+    // View access: CEO, team lead, dept-head over team, or team member.
+    let allowed =
+      role === Role.CEO ||
+      team.teamLeadId === userId ||
+      (await this.canActAsLead(team, userId, role));
+    if (!allowed) {
+      const member = await this.prisma.teamMember.findUnique({
+        where: { userId_teamId: { userId, teamId } },
+      });
+      if (member) allowed = true;
+    }
+    if (!allowed) {
+      throw new ForbiddenException(
+        "You do not have permission to view this team's tasks",
+      );
+    }
+
+    const where: Prisma.TaskWhereInput = {
+      teamId,
+      ...this.buildTaskFilters(filters),
+    };
+
+    const [data, total] = await Promise.all([
+      this.prisma.task.findMany({
+        where,
+        include: {
+          assignee: { select: { id: true, fullName: true, email: true } },
+          creator: { select: { id: true, fullName: true } },
+          team: { select: { id: true, name: true, isShared: true } },
+          taggedDepartment: { select: { id: true, name: true } },
+          labels: { select: { id: true, name: true, color: true } },
+        },
+        orderBy: [{ position: "asc" }, { createdAt: "desc" }],
+        ...paginateArgs(filters),
+      }),
+      this.prisma.task.count({ where }),
+    ]);
+
+    return paginate(data, total, filters);
+  }
+
+  // ──────────────────────────────────────────────
   // Employee: View my assigned tasks
   // ──────────────────────────────────────────────
 
@@ -812,11 +872,18 @@ export class TasksService {
     if (!task || task.team.companyId !== companyId) {
       throw new NotFoundException("Task not found");
     }
-    const allowed =
+    let allowed =
       role === Role.CEO ||
       task.assigneeId === userId ||
       task.creatorId === userId ||
       (await this.canActAsLead(task.team, userId, role));
+    // Team members can view tasks in their team (the team-hub use case).
+    if (!allowed) {
+      const member = await this.prisma.teamMember.findUnique({
+        where: { userId_teamId: { userId, teamId: task.teamId } },
+      });
+      if (member) allowed = true;
+    }
     if (!allowed) {
       throw new ForbiddenException("You do not have access to this task");
     }
