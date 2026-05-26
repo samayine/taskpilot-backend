@@ -1,34 +1,22 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import * as nodemailer from "nodemailer";
+import { Resend } from "resend";
 
 /**
- * Thin wrapper around Nodemailer (Gmail SMTP) for transactional emails.
- * Gmail requires an App Password (2FA enabled) — a normal account password
- * will not authenticate over SMTP.
+ * Thin wrapper around Resend for transactional emails.
+ * Requires a RESEND_API_KEY in the environment.
+ * The MAIL_FROM address must belong to a domain verified in your Resend dashboard
+ * (or use "onboarding@resend.dev" for quick local testing).
  */
 @Injectable()
 export class MailService {
-  private readonly logger = new Logger(MailService.name);
-  private readonly transporter: nodemailer.Transporter;
+  private readonly resend: Resend;
   private readonly from: string;
 
   constructor(private readonly config: ConfigService) {
-    const port = Number(this.config.get<string>("SMTP_PORT") ?? 587);
-
-    this.transporter = nodemailer.createTransport({
-      host: this.config.get<string>("SMTP_HOST") ?? "smtp.gmail.com",
-      port,
-      secure: port === 465, // 465 = implicit TLS; 587 = STARTTLS
-      auth: {
-        user: this.config.get<string>("SMTP_USER"),
-        pass: this.config.get<string>("SMTP_PASS"),
-      },
-    });
-
+    this.resend = new Resend(this.config.get<string>("RESEND_API_KEY"));
     this.from =
-      this.config.get<string>("MAIL_FROM") ??
-      `TaskPilot <${this.config.get<string>("SMTP_USER")}>`;
+      this.config.get<string>("MAIL_FROM") ?? "TaskPilot <onboarding@resend.dev>";
   }
 
   /**
@@ -36,7 +24,7 @@ export class MailService {
    * in the URL the user clicks — never in our database.
    */
   async sendPasswordReset(to: string, name: string, resetUrl: string) {
-    await this.transporter.sendMail({
+    const { error } = await this.resend.emails.send({
       from: this.from,
       to,
       subject: "Reset your TaskPilot password",
@@ -67,6 +55,10 @@ export class MailService {
           </p>
         </div>`,
     });
+
+    if (error) {
+      throw new Error(`Resend error: ${error.message}`);
+    }
   }
 
   /**
@@ -79,7 +71,7 @@ export class MailService {
     password: string,
     loginUrl: string,
   ) {
-    await this.transporter.sendMail({
+    const { error } = await this.resend.emails.send({
       from: this.from,
       to,
       subject: "Welcome to TaskPilot — your account is ready",
@@ -117,13 +109,17 @@ export class MailService {
           </p>
         </div>`,
     });
+
+    if (error) {
+      throw new Error(`Resend error: ${error.message}`);
+    }
   }
 
   /**
    * Security alert sent after a password is successfully reset.
    */
   async sendPasswordChangedAlert(to: string, name: string) {
-    await this.transporter.sendMail({
+    const { error } = await this.resend.emails.send({
       from: this.from,
       to,
       subject: "Your TaskPilot password was changed",
@@ -144,5 +140,9 @@ export class MailService {
           </p>
         </div>`,
     });
+
+    if (error) {
+      throw new Error(`Resend error: ${error.message}`);
+    }
   }
 }
