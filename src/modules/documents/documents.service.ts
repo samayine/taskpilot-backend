@@ -8,6 +8,7 @@ import { PrismaService } from "src/prisma/prisma.service";
 import { UploadDocumentDto } from "./dto/upload-document.dto";
 import { UpdateVisibilityDto } from "./dto/update-visibility.dto";
 import { GrantAccessDto } from "./dto/grant-access.dto";
+import { UploadTeamDocumentDto } from "./dto/upload-team-document.dto";
 import { PaginationDto } from "src/common/dto/pagination.dto";
 import { paginateArgs, paginate } from "src/common/helpers/pagination.helper";
 import { DocumentVisibility, Prisma, Role } from "@prisma/client";
@@ -93,10 +94,12 @@ export class DocumentsService {
     const where: Prisma.DocumentWhereInput = {
       companyId,
       OR: [
-        // Documents visible to all
-        { visibility: DocumentVisibility.ALL },
+        // Documents visible to all (company-wide docs only)
+        { teamId: null, visibility: DocumentVisibility.ALL },
         // Documents uploaded by this user
         { uploaderId: userId },
+        // Team-scoped docs where the user is a team member
+        { teamId: { in: teamIds } },
         // Documents with SPECIFIC visibility where user has access
         {
           visibility: DocumentVisibility.SPECIFIC,
@@ -139,6 +142,7 @@ export class DocumentsService {
       include: {
         uploader: { select: { id: true, fullName: true, email: true } },
         project: { select: { id: true, name: true } },
+        team: { select: { id: true, name: true } },
         accessRules: true,
       },
     });
@@ -256,6 +260,7 @@ export class DocumentsService {
         include: {
           uploader: { select: { id: true, fullName: true, email: true } },
           project: { select: { id: true, name: true } },
+          team: { select: { id: true, name: true } },
           _count: { select: { accessRules: true } },
         },
         orderBy: { createdAt: "desc" },
@@ -272,6 +277,14 @@ export class DocumentsService {
     userId: string,
     companyId: string,
   ): Promise<boolean> {
+    // Team-scoped doc: any member of the team can view it
+    if (document.teamId) {
+      const member = await this.prisma.teamMember.findUnique({
+        where: { userId_teamId: { userId, teamId: document.teamId } },
+      });
+      return !!member;
+    }
+
     if (document.visibility === DocumentVisibility.ALL) {
       return true;
     }
@@ -329,5 +342,159 @@ export class DocumentsService {
     }
 
     return false;
+  }
+
+  // ──────────────────────────────────────────────
+  // Team-scoped documents (project hub)
+  // ──────────────────────────────────────────────
+
+  /**
+   * Resolve the team and check that the caller can view it: CEO, the team's
+   * lead, a dept-head over the team's department (or a shared dept), or any
+   * team member.
+   */
+  private async assertTeamViewer(
+    teamId: string,
+    userId: string,
+    role: Role,
+    companyId: string,
+  ) {
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+      select: {
+        id: true,
+        companyId: true,
+        teamLeadId: true,
+        departmentId: true,
+        isShared: true,
+      },
+    });
+    if (!team || team.companyId !== companyId) {
+      throw new NotFoundException("Team not found");
+    }
+    if (role === Role.CEO) return team;
+    if (team.teamLeadId === userId) return team;
+    if (role === Role.DEPARTMENT_HEAD) {
+      const headed = await this.prisma.department.findMany({
+        where: { headId: userId, companyId },
+        select: { id: true },
+      });
+      const ids = new Set(headed.map((d) => d.id));
+      const ok = team.isShared
+        ? (
+            await this.prisma.teamDepartment.findMany({
+              where: { teamId: team.id },
+              select: { departmentId: true },
+            })
+          ).some((sd) => ids.has(sd.departmentId))
+        : !!team.departmentId && ids.has(team.departmentId);
+      if (ok) return team;
+    }
+    const member = await this.prisma.teamMember.findUnique({
+      where: { userId_teamId: { userId, teamId } },
+    });
+    if (member) return team;
+    throw new ForbiddenException("You do not have access to this team");
+  }
+
+  /** Whether the caller can manage the team (delete other people's docs). */
+  private async canManageTeam(
+    team: {
+      id: string;
+      teamLeadId: string;
+      departmentId: string | null;
+      isShared: boolean;
+    },
+    userId: string,
+    role: Role,
+  ): Promise<boolean> {
+    if (role === Role.CEO) return true;
+    if (team.teamLeadId === userId) return true;
+    if (role === Role.DEPARTMENT_HEAD) {
+      const headed = await this.prisma.department.findMany({
+        where: { headId: userId },
+        select: { id: true },
+      });
+      const ids = new Set(headed.map((d) => d.id));
+      if (team.isShared) {
+        const shared = await this.prisma.teamDepartment.findMany({
+          where: { teamId: team.id },
+          select: { departmentId: true },
+        });
+        return shared.some((sd) => ids.has(sd.departmentId));
+      }
+      return !!team.departmentId && ids.has(team.departmentId);
+    }
+    return false;
+  }
+
+  /** List documents attached to a team's hub. Any team viewer. */
+  async listByTeam(
+    teamId: string,
+    userId: string,
+    role: Role,
+    companyId: string,
+  ) {
+    await this.assertTeamViewer(teamId, userId, role, companyId);
+    return this.prisma.document.findMany({
+      where: { teamId, companyId },
+      include: {
+        uploader: { select: { id: true, fullName: true, email: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  /** Upload a document to a team's hub. Any team viewer. */
+  async createForTeam(
+    teamId: string,
+    userId: string,
+    role: Role,
+    companyId: string,
+    dto: UploadTeamDocumentDto,
+  ) {
+    await this.assertTeamViewer(teamId, userId, role, companyId);
+    return this.prisma.document.create({
+      data: {
+        fileName: dto.fileName,
+        fileUrl: dto.fileUrl,
+        fileSize: dto.fileSize,
+        mimeType: dto.mimeType,
+        teamId,
+        uploaderId: userId,
+        companyId,
+        // Team-scoped docs ignore visibility; default ALL keeps the column happy.
+        visibility: DocumentVisibility.ALL,
+      },
+      include: {
+        uploader: { select: { id: true, fullName: true, email: true } },
+      },
+    });
+  }
+
+  /** Delete a team document. Uploader or a team manager. */
+  async removeFromTeam(
+    teamId: string,
+    documentId: string,
+    userId: string,
+    role: Role,
+    companyId: string,
+  ) {
+    const team = await this.assertTeamViewer(teamId, userId, role, companyId);
+    const doc = await this.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { id: true, teamId: true, uploaderId: true, companyId: true },
+    });
+    if (!doc || doc.teamId !== teamId || doc.companyId !== companyId) {
+      throw new NotFoundException("Document not found");
+    }
+    const isUploader = doc.uploaderId === userId;
+    if (!isUploader && !(await this.canManageTeam(team, userId, role))) {
+      throw new ForbiddenException(
+        "Only the uploader or a team manager can delete this document",
+      );
+    }
+    await this.prisma.document.delete({ where: { id: documentId } });
+    return { message: "Document deleted" };
   }
 }

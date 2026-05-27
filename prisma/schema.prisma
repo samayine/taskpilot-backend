@@ -131,6 +131,7 @@ model Team {
   tasks      Task[]
   sharedDepartments TeamDepartment[]
   announcements     TeamAnnouncement[]
+  documents         Document[]
 
   @@index([companyId])
   @@index([teamLeadId])
@@ -571,6 +572,12 @@ model Document {
   projectId String?
   project   Project? @relation(fields: [projectId], references: [id])
 
+  // Team-scoped documents (the project = team hub). When set, visibility is
+  // implicitly "team members" and the explicit DocumentVisibility flag is
+  // ignored for access checks.
+  teamId String?
+  team   Team?   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
   companyId String
   company   Company @relation(fields: [companyId], references: [id])
 
@@ -581,6 +588,7 @@ model Document {
   accessRules DocumentAccessRule[]
 
   @@index([projectId])
+  @@index([teamId])
   @@index([companyId])
 }
 
