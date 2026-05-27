@@ -33,4 +33,27 @@ export class MeController {
       req.user.companyId,
     );
   }
+
+  /**
+   * Role-aware analytics: totals + status/priority breakdowns + 14-day
+   * completion trend. CEO is routed to /company/dashboard instead.
+   */
+  @ApiOperation({
+    summary:
+      "Role-aware analytics (totals, breakdowns, 14-day trend). Powers Overview for non-CEO roles.",
+  })
+  @Roles(
+    Role.ASSISTANT,
+    Role.DEPARTMENT_HEAD,
+    Role.TEAM_LEAD,
+    Role.EMPLOYEE,
+  )
+  @Get("analytics")
+  getAnalytics(@Request() req) {
+    return this.meService.getAnalytics(
+      req.user.userId,
+      req.user.role,
+      req.user.companyId,
+    );
+  }
 }
