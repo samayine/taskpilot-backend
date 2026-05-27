@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import { PrismaService } from "src/prisma/prisma.service";
 import { CreateCommentDto } from "./dto/create-comment.dto";
+import { UpdateCommentDto } from "./dto/update-comment.dto";
 import { PaginationDto } from "src/common/dto/pagination.dto";
 import { paginateArgs, paginate } from "src/common/helpers/pagination.helper";
 import { NotificationType, Role } from "@prisma/client";
@@ -211,6 +212,123 @@ export class CommentsService {
   ) {
     await this.assertCanAccess(taskId, userId, role, companyId);
     return (await this.mentionableUsers(taskId)).filter((u) => u.id !== userId);
+  }
+
+  /**
+   * Whether a user may act as a manager for the comment's task — used to
+   * decide who can delete other people's comments.
+   */
+  private async canManageTask(
+    taskId: string,
+    userId: string,
+    role: Role,
+    companyId: string,
+  ): Promise<boolean> {
+    if (role === Role.CEO) return true;
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      select: {
+        taggedDepartmentId: true,
+        team: {
+          select: {
+            companyId: true,
+            departmentId: true,
+            isShared: true,
+            teamLeadId: true,
+          },
+        },
+      },
+    });
+    if (!task || task.team.companyId !== companyId) return false;
+    if (role === Role.TEAM_LEAD) return task.team.teamLeadId === userId;
+    if (role === Role.DEPARTMENT_HEAD) {
+      const headed = await this.prisma.department.findMany({
+        where: { headId: userId, companyId },
+        select: { id: true },
+      });
+      const ids = new Set(headed.map((d) => d.id));
+      return task.team.isShared
+        ? !!task.taggedDepartmentId && ids.has(task.taggedDepartmentId)
+        : !!task.team.departmentId && ids.has(task.team.departmentId);
+    }
+    return false;
+  }
+
+  /**
+   * Edit a comment's text. Author only.
+   */
+  async update(
+    taskId: string,
+    commentId: string,
+    userId: string,
+    role: Role,
+    companyId: string,
+    dto: UpdateCommentDto,
+  ) {
+    await this.assertCanAccess(taskId, userId, role, companyId);
+    const comment = await this.prisma.comment.findUnique({
+      where: { id: commentId },
+      select: { id: true, taskId: true, authorId: true },
+    });
+    if (!comment || comment.taskId !== taskId) {
+      throw new NotFoundException("Comment not found");
+    }
+    if (comment.authorId !== userId) {
+      throw new ForbiddenException("Only the author can edit a comment");
+    }
+    const content = dto.content?.trim();
+    if (!content) {
+      throw new BadRequestException("Comment text cannot be empty");
+    }
+    return this.prisma.comment.update({
+      where: { id: commentId },
+      data: { content },
+      include: {
+        author: { select: { id: true, fullName: true, role: true } },
+        mentions: {
+          include: { user: { select: { id: true, fullName: true } } },
+        },
+        attachments: {
+          include: { uploadedBy: { select: { id: true, fullName: true } } },
+        },
+      },
+    });
+  }
+
+  /**
+   * Delete a comment. Author OR task manager (lead / dept-head / CEO).
+   * Cascade rules in the schema clean up mentions + comment attachments.
+   */
+  async remove(
+    taskId: string,
+    commentId: string,
+    userId: string,
+    role: Role,
+    companyId: string,
+  ) {
+    await this.assertCanAccess(taskId, userId, role, companyId);
+    const comment = await this.prisma.comment.findUnique({
+      where: { id: commentId },
+      select: { id: true, taskId: true, authorId: true },
+    });
+    if (!comment || comment.taskId !== taskId) {
+      throw new NotFoundException("Comment not found");
+    }
+    if (comment.authorId !== userId) {
+      const canManage = await this.canManageTask(
+        taskId,
+        userId,
+        role,
+        companyId,
+      );
+      if (!canManage) {
+        throw new ForbiddenException(
+          "You do not have permission to delete this comment",
+        );
+      }
+    }
+    await this.prisma.comment.delete({ where: { id: commentId } });
+    return { message: "Comment deleted" };
   }
 
   /**

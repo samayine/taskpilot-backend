@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Request,
@@ -11,6 +13,7 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation } from "@nestjs/swagger";
 import { CommentsService } from "./comments.service";
 import { CreateCommentDto } from "./dto/create-comment.dto";
+import { UpdateCommentDto } from "./dto/update-comment.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { RolesGuard } from "src/common/guards/roles.guard";
 import { Roles } from "src/common/decorators/roles.decorator";
@@ -70,6 +73,44 @@ export class CommentsController {
       req.user.role,
       req.user.companyId,
       pagination,
+    );
+  }
+
+  /** Edit a comment's text (author only). */
+  @ApiOperation({ summary: "Edit a comment's text (author only)." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Patch(":id")
+  update(
+    @Param("taskId") taskId: string,
+    @Param("id") commentId: string,
+    @Body() dto: UpdateCommentDto,
+    @Request() req,
+  ) {
+    return this.commentsService.update(
+      taskId,
+      commentId,
+      req.user.userId,
+      req.user.role,
+      req.user.companyId,
+      dto,
+    );
+  }
+
+  /** Delete a comment (author or task manager). */
+  @ApiOperation({ summary: "Delete a comment (author or task manager)." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE)
+  @Delete(":id")
+  remove(
+    @Param("taskId") taskId: string,
+    @Param("id") commentId: string,
+    @Request() req,
+  ) {
+    return this.commentsService.remove(
+      taskId,
+      commentId,
+      req.user.userId,
+      req.user.role,
+      req.user.companyId,
     );
   }
 }
