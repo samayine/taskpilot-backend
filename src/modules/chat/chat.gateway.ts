@@ -55,10 +55,25 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.data.companyId = payload.companyId;
       client.data.role = payload.role;
 
-      this.logger.log(
-        `Chat client ${client.id} connected — user: ${payload.sub}`,
+      // Auto-join every channel the user is a member of so they receive
+      // newMessage events for any of them — not just the one they're
+      // actively viewing. This keeps unread counts live across the sidebar.
+      const channelIds = await this.chatService.listChannelIdsForUser(
+        payload.sub,
+        payload.companyId,
       );
-    } catch (error) {
+      for (const id of channelIds) {
+        await client.join(`channel:${id}`);
+      }
+      // Personal room so the gateway can target a single user (e.g. when a
+      // DM channel is freshly created and we want to push it to the other
+      // side's sidebar).
+      await client.join(`user:${payload.sub}`);
+
+      this.logger.log(
+        `Chat client ${client.id} connected — user: ${payload.sub} (auto-joined ${channelIds.length} rooms)`,
+      );
+    } catch {
       this.logger.warn(`Chat client ${client.id} rejected — invalid token`);
       client.disconnect();
     }
@@ -131,9 +146,22 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.server.to(`channel:${data.channelId}`).emit("newMessage", message);
 
       return { event: "messageSent", data: message };
-    } catch (error) {
-      return { event: "error", data: { message: error.message } };
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Send failed";
+      return { event: "error", data: { message: msg } };
     }
+  }
+
+  /**
+   * Server-side: notify a user that a new channel was opened with them (e.g.
+   * a freshly-created DM). The user joins the new channel's room so they
+   * receive subsequent newMessage events without reconnecting.
+   */
+  notifyChannelOpened(userId: string, channelId: string, channel: unknown) {
+    void this.server
+      .in(`user:${userId}`)
+      .socketsJoin(`channel:${channelId}`);
+    this.server.to(`user:${userId}`).emit("channelOpened", channel);
   }
 
   /**

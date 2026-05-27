@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Request,
@@ -10,9 +11,11 @@ import {
 } from "@nestjs/common";
 import { ApiTags, ApiBearerAuth, ApiOperation } from "@nestjs/swagger";
 import { ChatService } from "./chat.service";
+import { ChatGateway } from "./chat.gateway";
 import { CreateChannelDto } from "./dto/create-channel.dto";
 import { SendMessageDto } from "./dto/send-message.dto";
 import { AddChannelMemberDto } from "./dto/add-channel-member.dto";
+import { OpenDirectDto } from "./dto/open-direct.dto";
 import { PaginationDto } from "src/common/dto/pagination.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { RolesGuard } from "src/common/guards/roles.guard";
@@ -24,7 +27,10 @@ import { Role } from "@prisma/client";
 @Controller("chat")
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ChatController {
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly chatGateway: ChatGateway,
+  ) {}
 
   /** CEO, DEPARTMENT_HEAD, or TEAM_LEAD creates a chat channel. */
   @ApiOperation({ summary: "CEO, DEPARTMENT_HEAD, or TEAM_LEAD creates a chat channel." })
@@ -97,6 +103,62 @@ export class ChatController {
       channelId,
       dto.userId,
       req.user.userId,
+      req.user.companyId,
+    );
+  }
+
+  /** Mark a channel as read (resets the caller's unread count). */
+  @ApiOperation({ summary: "Mark a channel as read for the caller." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
+  @Patch("channels/:id/read")
+  markRead(@Param("id") channelId: string, @Request() req) {
+    return this.chatService.markChannelRead(
+      channelId,
+      req.user.userId,
+      req.user.companyId,
+    );
+  }
+
+  /** Get-or-create a direct (1:1) message channel with another user. */
+  @ApiOperation({ summary: "Get-or-create a direct message channel with another user." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
+  @Post("dms")
+  async openDirect(@Body() dto: OpenDirectDto, @Request() req) {
+    const channel = await this.chatService.getOrCreateDirectChannel(
+      req.user.userId,
+      req.user.role,
+      dto.userId,
+      req.user.companyId,
+    );
+    // Push the new channel to the other party's sidebar (and ensure their
+    // socket joins the channel room so live messages flow without refresh).
+    if (channel) {
+      this.chatGateway.notifyChannelOpened(dto.userId, channel.id, channel);
+    }
+    return channel;
+  }
+
+  /** List users the caller is allowed to DM. */
+  @ApiOperation({ summary: "List users the caller is allowed to DM." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
+  @Get("dms/users")
+  dmableUsers(@Request() req) {
+    return this.chatService.getDmableUsers(
+      req.user.userId,
+      req.user.role,
+      req.user.companyId,
+    );
+  }
+
+  /** Get-or-create the chat channel for a team's project hub. */
+  @ApiOperation({ summary: "Get-or-create the team's project-hub chat channel." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
+  @Get("teams/:teamId/channel")
+  teamChannel(@Param("teamId") teamId: string, @Request() req) {
+    return this.chatService.getOrCreateTeamChannel(
+      teamId,
+      req.user.userId,
+      req.user.role,
       req.user.companyId,
     );
   }

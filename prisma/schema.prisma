@@ -132,6 +132,7 @@ model Team {
   sharedDepartments TeamDepartment[]
   announcements     TeamAnnouncement[]
   documents         Document[]
+  chatChannels      ChatChannel[]
 
   @@index([companyId])
   @@index([teamLeadId])
@@ -506,8 +507,14 @@ model ChatChannel {
   type      ChannelType @default(PROJECT)
   createdAt DateTime    @default(now())
 
+  // Legacy: linked to the old Project model. Kept for backwards-compat.
   projectId String?
   project   Project? @relation(fields: [projectId], references: [id])
+
+  // The team this channel belongs to (the project hub's chat). Null for DMs
+  // and standalone channels.
+  teamId String?
+  team   Team?   @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   companyId String
   company   Company @relation(fields: [companyId], references: [id])
@@ -516,6 +523,7 @@ model ChatChannel {
   members  ChatChannelMember[]
 
   @@index([projectId])
+  @@index([teamId])
   @@index([companyId])
 }
 
@@ -527,10 +535,12 @@ enum ChannelType {
 }
 
 model ChatChannelMember {
-  id        String   @id @default(uuid())
-  channelId String
-  userId    String
-  joinedAt  DateTime @default(now())
+  id         String    @id @default(uuid())
+  channelId  String
+  userId     String
+  joinedAt   DateTime  @default(now())
+  // Last time the user opened/read this channel; used to compute unread counts.
+  lastReadAt DateTime?
 
   channel ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
   user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
