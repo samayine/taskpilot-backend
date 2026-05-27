@@ -13,6 +13,32 @@ const SMALL_PAGE = 10;
 export class MeService {
   constructor(private readonly prisma: PrismaService) {}
 
+  // Most-recent @mentions of a user across all their tasks. Returned in a
+  // shape the frontend uses directly (no Prisma nesting leaks).
+  private async recentMentions(userId: string, take = SMALL_PAGE) {
+    const rows = await this.prisma.commentMention.findMany({
+      where: { userId },
+      include: {
+        comment: {
+          include: {
+            author: { select: { id: true, fullName: true } },
+            task: { select: { id: true, title: true } },
+          },
+        },
+      },
+      orderBy: { comment: { createdAt: "desc" } },
+      take,
+    });
+    return rows.map((m) => ({
+      id: m.id,
+      commentId: m.commentId,
+      content: m.comment.content,
+      createdAt: m.comment.createdAt,
+      author: m.comment.author,
+      task: m.comment.task,
+    }));
+  }
+
   // Public entry — dispatches on role.
   async getHome(userId: string, role: Role, companyId: string) {
     switch (role) {
@@ -89,19 +115,7 @@ export class MeService {
           take: PAGE,
         }),
         // Mentions of me in comments (latest first).
-        this.prisma.commentMention.findMany({
-          where: { userId },
-          include: {
-            comment: {
-              include: {
-                author: { select: { id: true, fullName: true } },
-                task: { select: { id: true, title: true } },
-              },
-            },
-          },
-          orderBy: { comment: { createdAt: "desc" } },
-          take: SMALL_PAGE,
-        }),
+        this.recentMentions(userId),
         // Watching: tasks I follow that are still active.
         this.prisma.taskWatcher.findMany({
           where: {
@@ -120,14 +134,7 @@ export class MeService {
       today,
       inProgress,
       upNext,
-      mentions: mentions.map((m) => ({
-        id: m.id,
-        commentId: m.commentId,
-        content: m.comment.content,
-        createdAt: m.comment.createdAt,
-        author: m.comment.author,
-        task: m.comment.task,
-      })),
+      mentions,
       watching: watching.map((w) => w.task),
     };
   }
@@ -151,25 +158,29 @@ export class MeService {
 
     if (teamIds.length === 0) {
       // Newly-promoted lead with no teams yet — still show their own work.
-      const myTasks = await this.prisma.task.findMany({
-        where: {
-          assigneeId: userId,
-          status: { notIn: [TaskStatus.COMPLETED, TaskStatus.CANCELLED] },
-        },
-        include: baseInclude,
-        orderBy: [{ priority: "desc" }, { dueDate: "asc" }],
-        take: PAGE,
-      });
+      const [myTasks, mentions] = await Promise.all([
+        this.prisma.task.findMany({
+          where: {
+            assigneeId: userId,
+            status: { notIn: [TaskStatus.COMPLETED, TaskStatus.CANCELLED] },
+          },
+          include: baseInclude,
+          orderBy: [{ priority: "desc" }, { dueDate: "asc" }],
+          take: PAGE,
+        }),
+        this.recentMentions(userId),
+      ]);
       return {
         role: Role.TEAM_LEAD,
         teams,
         reviewQueue: [],
         myTasks,
         workload: [],
+        mentions,
       };
     }
 
-    const [reviewQueue, myTasks, members] = await Promise.all([
+    const [reviewQueue, myTasks, members, mentions] = await Promise.all([
       // Tasks waiting on me to review (oldest first — most urgent).
       this.prisma.task.findMany({
         where: { teamId: { in: teamIds }, status: TaskStatus.REVIEW },
@@ -194,6 +205,7 @@ export class MeService {
           user: { select: { id: true, fullName: true, email: true } },
         },
       }),
+      this.recentMentions(userId),
     ]);
 
     // Compute open + overdue counts per member.
@@ -247,7 +259,14 @@ export class MeService {
       }))
       .sort((a, b) => b.openCount - a.openCount);
 
-    return { role: Role.TEAM_LEAD, teams, reviewQueue, myTasks, workload };
+    return {
+      role: Role.TEAM_LEAD,
+      teams,
+      reviewQueue,
+      myTasks,
+      workload,
+      mentions,
+    };
   }
 
   // ──────────────────────────────────────────────
@@ -269,12 +288,14 @@ export class MeService {
     } as const;
 
     if (teamIds.length === 0 && deptIds.length === 0) {
+      const mentions = await this.recentMentions(userId);
       return {
         role: Role.DEPARTMENT_HEAD,
         departments: [],
         needsAttention: [],
         overdue: [],
         teamSummaries: [],
+        mentions,
       };
     }
 
@@ -289,7 +310,7 @@ export class MeService {
     const startOfToday = new Date(now);
     startOfToday.setHours(0, 0, 0, 0);
 
-    const [needsAttention, overdue, summaryGroups] = await Promise.all([
+    const [needsAttention, overdue, summaryGroups, mentions] = await Promise.all([
       // REVIEW tasks in scope (review queue across the department).
       this.prisma.task.findMany({
         where: { ...inScopeWhere, status: TaskStatus.REVIEW },
@@ -317,6 +338,7 @@ export class MeService {
         },
         _count: { _all: true },
       }),
+      this.recentMentions(userId),
     ]);
 
     // Build per-team summaries.
@@ -342,6 +364,7 @@ export class MeService {
       needsAttention,
       overdue,
       teamSummaries,
+      mentions,
     };
   }
 
@@ -349,7 +372,7 @@ export class MeService {
   // CEO: company-wide attention + recent submits + throughput
   // ──────────────────────────────────────────────
 
-  private async ceoHome(_userId: string, companyId: string) {
+  private async ceoHome(userId: string, companyId: string) {
     const baseInclude = {
       assignee: { select: { id: true, fullName: true, email: true } },
       team: { select: { id: true, name: true, isShared: true } },
@@ -362,7 +385,7 @@ export class MeService {
     const weekAgo = new Date(now);
     weekAgo.setDate(weekAgo.getDate() - 7);
 
-    const [needsAttention, recentSubmits, completedThisWeek, openTotal] =
+    const [needsAttention, recentSubmits, completedThisWeek, openTotal, mentions] =
       await Promise.all([
         // REVIEW + overdue, anywhere in the company.
         this.prisma.task.findMany({
@@ -400,12 +423,14 @@ export class MeService {
             status: { notIn: [TaskStatus.COMPLETED, TaskStatus.CANCELLED] },
           },
         }),
+        this.recentMentions(userId),
       ]);
 
     return {
       role: Role.CEO,
       needsAttention,
       recentSubmits,
+      mentions,
       throughput: {
         completedThisWeek,
         openTotal,
