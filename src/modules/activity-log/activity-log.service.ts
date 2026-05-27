@@ -2,6 +2,8 @@ import { Injectable } from "@nestjs/common";
 import { PrismaService } from "src/prisma/prisma.service";
 import { PaginationDto } from "src/common/dto/pagination.dto";
 import { paginateArgs, paginate } from "src/common/helpers/pagination.helper";
+import { ActivityLogFilterDto } from "./dto/activity-log-filter.dto";
+import { Prisma } from "@prisma/client";
 
 /**
  * Reusable service for logging system-wide actions.
@@ -42,10 +44,27 @@ export class ActivityLogService {
   }
 
   /**
-   * Get activity logs for a company (CEO dashboard).
+   * Get activity logs for a company (CEO dashboard). Optionally filter by
+   * action substring, entityType, or the acting userId.
    */
-  async findByCompany(companyId: string, pagination: PaginationDto) {
-    const where = { companyId };
+  async findByCompany(
+    companyId: string,
+    filters: ActivityLogFilterDto = {} as ActivityLogFilterDto,
+  ) {
+    const where: Prisma.ActivityLogWhereInput = { companyId };
+    if (filters.action) {
+      where.action = { contains: filters.action, mode: "insensitive" };
+    }
+    if (filters.entityType) {
+      where.entityType = filters.entityType;
+    }
+    if (filters.userId) {
+      where.userId = filters.userId;
+    }
+    const pagination: PaginationDto = {
+      page: filters.page,
+      limit: filters.limit,
+    };
     const [data, total] = await Promise.all([
       this.prisma.activityLog.findMany({
         where,
@@ -59,5 +78,28 @@ export class ActivityLogService {
     ]);
 
     return paginate(data, total, pagination);
+  }
+
+  /**
+   * Distinct facet values (actions + entityTypes) currently present for a
+   * company. Powers the filter dropdowns on the Activity Log page.
+   */
+  async getFacets(companyId: string) {
+    const [actions, entityTypes] = await Promise.all([
+      this.prisma.activityLog.findMany({
+        where: { companyId },
+        select: { action: true },
+        distinct: ["action"],
+      }),
+      this.prisma.activityLog.findMany({
+        where: { companyId },
+        select: { entityType: true },
+        distinct: ["entityType"],
+      }),
+    ]);
+    return {
+      actions: actions.map((a) => a.action).sort(),
+      entityTypes: entityTypes.map((e) => e.entityType).sort(),
+    };
   }
 }
