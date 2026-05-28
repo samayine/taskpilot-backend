@@ -1,63 +1,71 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { Resend } from "resend";
+import * as nodemailer from "nodemailer";
 
 /**
- * Thin wrapper around Resend for transactional emails.
- * Requires a RESEND_API_KEY in the environment.
- * The MAIL_FROM address must belong to a domain verified in your Resend dashboard
- * (or use "onboarding@resend.dev" for quick local testing).
+ * Thin wrapper around Nodemailer (cPanel SMTP) for transactional emails.
+ * Configured via SMTP_* env vars. On port 465 the connection is implicit SSL
+ * (SMTP_SECURE=true); on 587 it upgrades via STARTTLS (SMTP_SECURE=false).
  */
 @Injectable()
-export class MailService {
-  private readonly resend: Resend;
+export class MailService implements OnModuleInit {
+  private readonly logger = new Logger(MailService.name);
+  private readonly transporter: nodemailer.Transporter;
   private readonly from: string;
 
   constructor(private readonly config: ConfigService) {
-    this.resend = new Resend(this.config.get<string>("RESEND_API_KEY"));
-    this.from =
-      this.config.get<string>("MAIL_FROM") ?? "TaskPilot <onboarding@resend.dev>";
-  }
+    const port = Number(this.config.get<string>("SMTP_PORT") ?? 465);
+    const secure =
+      this.config.get<string>("SMTP_SECURE") === "true" || port === 465;
 
-  /**
-   * Send the password-reset link. The raw token lives only in this email and
-   * in the URL the user clicks — never in our database.
-   */
-  async sendPasswordReset(to: string, name: string, resetUrl: string) {
-    const { error } = await this.resend.emails.send({
-      from: this.from,
-      to,
-      subject: "Reset your TaskPilot password",
-      text:
-        `Hi ${name},\n\n` +
-        `We received a request to reset your TaskPilot password. ` +
-        `Click the link below to choose a new one. This link expires in 15 minutes.\n\n` +
-        `${resetUrl}\n\n` +
-        `If you didn't request this, you can safely ignore this email — your password won't change.\n`,
-      html: `
-        <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto;">
-          <h2 style="color: #111;">Reset your password</h2>
-          <p>Hi ${name},</p>
-          <p>We received a request to reset your TaskPilot password.
-             Click the button below to choose a new one. This link expires in <strong>15 minutes</strong>.</p>
-          <p style="margin: 24px 0;">
-            <a href="${resetUrl}"
-               style="background:#111;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;display:inline-block;">
-              Reset password
-            </a>
-          </p>
-          <p style="color:#666;font-size:13px;">
-            If the button doesn't work, paste this URL into your browser:<br />
-            <a href="${resetUrl}">${resetUrl}</a>
-          </p>
-          <p style="color:#666;font-size:13px;">
-            If you didn't request this, you can safely ignore this email — your password won't change.
-          </p>
-        </div>`,
+    this.transporter = nodemailer.createTransport({
+      host: this.config.get<string>("SMTP_HOST"),
+      port,
+      secure,
+      auth: {
+        user: this.config.get<string>("SMTP_USER"),
+        pass: this.config.get<string>("SMTP_PASS"),
+      },
     });
 
-    if (error) {
-      throw new Error(`Resend error: ${error.message}`);
+    this.from =
+      this.config.get<string>("MAIL_FROM") ??
+      `TaskPilot <${this.config.get<string>("SMTP_USER")}>`;
+  }
+
+  /** Verify the SMTP connection at boot so misconfiguration surfaces early. */
+  async onModuleInit() {
+    try {
+      await this.transporter.verify();
+      this.logger.log("SMTP connection verified — mail service ready");
+    } catch (err) {
+      this.logger.error(
+        "SMTP connection failed to verify — emails will not send until fixed",
+        err instanceof Error ? err.stack : String(err),
+      );
+    }
+  }
+
+  /** Send a single email, logging success/failure. Throws on failure so callers can decide. */
+  private async send(options: {
+    to: string;
+    subject: string;
+    text: string;
+    html: string;
+  }) {
+    try {
+      const info = await this.transporter.sendMail({
+        from: this.from,
+        ...options,
+      });
+      this.logger.log(`Email sent to ${options.to} (id: ${info.messageId})`);
+      return info;
+    } catch (err) {
+      this.logger.error(
+        `Failed to send email to ${options.to} — "${options.subject}"`,
+        err instanceof Error ? err.stack : String(err),
+      );
+      throw err;
     }
   }
 
@@ -71,8 +79,7 @@ export class MailService {
     password: string,
     loginUrl: string,
   ) {
-    const { error } = await this.resend.emails.send({
-      from: this.from,
+    return this.send({
       to,
       subject: "Welcome to TaskPilot — your account is ready",
       text:
@@ -109,18 +116,50 @@ export class MailService {
           </p>
         </div>`,
     });
+  }
 
-    if (error) {
-      throw new Error(`Resend error: ${error.message}`);
-    }
+  /**
+   * Send the password-reset link. The raw token lives only in this email and
+   * in the URL the user clicks — never in our database.
+   */
+  async sendPasswordReset(to: string, name: string, resetUrl: string) {
+    return this.send({
+      to,
+      subject: "Reset your TaskPilot password",
+      text:
+        `Hi ${name},\n\n` +
+        `We received a request to reset your TaskPilot password. ` +
+        `Click the link below to choose a new one. This link expires in 15 minutes.\n\n` +
+        `${resetUrl}\n\n` +
+        `If you didn't request this, you can safely ignore this email — your password won't change.\n`,
+      html: `
+        <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto;">
+          <h2 style="color: #111;">Reset your password</h2>
+          <p>Hi ${name},</p>
+          <p>We received a request to reset your TaskPilot password.
+             Click the button below to choose a new one. This link expires in <strong>15 minutes</strong>.</p>
+          <p style="margin: 24px 0;">
+            <a href="${resetUrl}"
+               style="background:#111;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;display:inline-block;">
+              Reset password
+            </a>
+          </p>
+          <p style="color:#666;font-size:13px;">
+            If the button doesn't work, paste this URL into your browser:<br />
+            <a href="${resetUrl}">${resetUrl}</a>
+          </p>
+          <p style="color:#666;font-size:13px;">
+            If you didn't request this, you can safely ignore this email — your password won't change.
+          </p>
+        </div>`,
+    });
   }
 
   /**
    * Security alert sent after a password is successfully reset.
    */
   async sendPasswordChangedAlert(to: string, name: string) {
-    const { error } = await this.resend.emails.send({
-      from: this.from,
+    return this.send({
       to,
       subject: "Your TaskPilot password was changed",
       text:
@@ -140,9 +179,5 @@ export class MailService {
           </p>
         </div>`,
     });
-
-    if (error) {
-      throw new Error(`Resend error: ${error.message}`);
-    }
   }
 }
