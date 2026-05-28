@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -13,7 +14,12 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from "@nestjs/swagger";
 import { ChatService } from "./chat.service";
 import { ChatGateway } from "./chat.gateway";
 import { CreateChannelDto } from "./dto/create-channel.dto";
-import { SendMessageDto } from "./dto/send-message.dto";
+import {
+  SendMessageDto,
+  EditMessageDto,
+  ReactDto,
+  MuteChannelDto,
+} from "./dto/send-message.dto";
 import { AddChannelMemberDto } from "./dto/add-channel-member.dto";
 import { OpenDirectDto } from "./dto/open-direct.dto";
 import { PaginationDto } from "src/common/dto/pagination.dto";
@@ -73,18 +79,128 @@ export class ChatController {
     );
   }
 
-  /** Channel member sends a message (REST fallback — prefer WebSocket). */
-  @ApiOperation({ summary: "Channel member sends a message (REST fallback — prefer WebSocket)." })
+  /** Channel member sends a message (use this path for attachments / mentions;
+   *  plain text can also go over the WebSocket for lower latency). */
+  @ApiOperation({ summary: "Send a message (supports attachments + @mentions)." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
   @Post("channels/:id/messages")
-  sendMessage(
+  async sendMessage(
     @Param("id") channelId: string,
     @Body() dto: SendMessageDto,
     @Request() req,
   ) {
-    return this.chatService.sendMessage(
+    const message = await this.chatService.sendMessage(
       channelId,
+      dto.content ?? "",
+      req.user.userId,
+      req.user.companyId,
+      {
+        attachments: dto.attachments,
+        mentionedUserIds: dto.mentionedUserIds,
+      },
+    );
+    // Broadcast to the channel room so every member (incl. sender) renders it
+    // through the same `newMessage` path as the WebSocket fast path.
+    this.chatGateway.broadcastToChannel(channelId, "newMessage", message);
+    return message;
+  }
+
+  /** Edit your own message. */
+  @ApiOperation({ summary: "Edit your own message." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
+  @Patch("messages/:id")
+  async editMessage(
+    @Param("id") messageId: string,
+    @Body() dto: EditMessageDto,
+    @Request() req,
+  ) {
+    const message = await this.chatService.editMessage(
+      messageId,
+      req.user.userId,
+      req.user.companyId,
       dto.content,
+    );
+    this.chatGateway.broadcastToChannel(
+      message.channelId,
+      "messageEdited",
+      message,
+    );
+    return message;
+  }
+
+  /** Delete a message (author or channel manager). */
+  @ApiOperation({ summary: "Delete a message (author or channel manager)." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
+  @Delete("messages/:id")
+  async deleteMessage(@Param("id") messageId: string, @Request() req) {
+    const message = await this.chatService.deleteMessage(
+      messageId,
+      req.user.userId,
+      req.user.role,
+      req.user.companyId,
+    );
+    this.chatGateway.broadcastToChannel(
+      message.channelId,
+      "messageDeleted",
+      message,
+    );
+    return message;
+  }
+
+  /** Toggle an emoji reaction on a message. */
+  @ApiOperation({ summary: "Toggle an emoji reaction on a message." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
+  @Patch("messages/:id/reactions")
+  async react(
+    @Param("id") messageId: string,
+    @Body() dto: ReactDto,
+    @Request() req,
+  ) {
+    const { message, channelId } = await this.chatService.toggleReaction(
+      messageId,
+      req.user.userId,
+      req.user.companyId,
+      dto.emoji,
+    );
+    this.chatGateway.broadcastToChannel(channelId, "reactionChanged", message);
+    return message;
+  }
+
+  /** Mute / unmute a channel for the caller. */
+  @ApiOperation({ summary: "Mute or unmute a channel for the caller." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
+  @Patch("channels/:id/mute")
+  setMute(
+    @Param("id") channelId: string,
+    @Body() dto: MuteChannelDto,
+    @Request() req,
+  ) {
+    return this.chatService.setChannelMute(
+      channelId,
+      req.user.userId,
+      req.user.companyId,
+      dto.muted,
+    );
+  }
+
+  /** List users that can be @mentioned in a channel (members minus caller). */
+  @ApiOperation({ summary: "List users that can be @mentioned in a channel." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
+  @Get("channels/:id/mentionable")
+  mentionable(@Param("id") channelId: string, @Request() req) {
+    return this.chatService.getMentionableUsers(
+      channelId,
+      req.user.userId,
+      req.user.companyId,
+    );
+  }
+
+  /** Total unread messages across the caller's (non-muted) channels. */
+  @ApiOperation({ summary: "Total unread message count for the chat badge." })
+  @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
+  @Get("unread-count")
+  unreadCount(@Request() req) {
+    return this.chatService.getTotalUnread(
       req.user.userId,
       req.user.companyId,
     );

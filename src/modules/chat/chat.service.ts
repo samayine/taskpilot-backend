@@ -1,18 +1,44 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
 import { PrismaService } from "src/prisma/prisma.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import { CreateChannelDto } from "./dto/create-channel.dto";
 import { PaginationDto } from "src/common/dto/pagination.dto";
 import { paginateArgs, paginate } from "src/common/helpers/pagination.helper";
-import { ChannelType, Role } from "@prisma/client";
+import { ChannelType, NotificationType, Prisma, Role } from "@prisma/client";
+
+// One attachment as supplied by the client (already uploaded to Cloudinary).
+export interface ChatAttachmentInput {
+  fileName: string;
+  fileUrl: string;
+  mimeType?: string;
+  fileSize?: number;
+  publicId?: string;
+}
+
+// Shared include so every message-returning path renders consistently.
+const MESSAGE_INCLUDE = {
+  sender: { select: { id: true, fullName: true, email: true } },
+  attachments: true,
+  reactions: {
+    include: { user: { select: { id: true, fullName: true } } },
+  },
+  mentions: {
+    include: { user: { select: { id: true, fullName: true } } },
+  },
+} satisfies Prisma.ChatMessageInclude;
 
 @Injectable()
 export class ChatService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   // ──────────────────────────────────────────────
   // Create a chat channel
@@ -165,16 +191,7 @@ export class ChatService {
     const [data, total] = await Promise.all([
       this.prisma.chatMessage.findMany({
         where,
-        include: {
-          sender: { select: { id: true, fullName: true, email: true } },
-          documents: {
-            include: {
-              document: {
-                select: { id: true, fileName: true, fileUrl: true, mimeType: true },
-              },
-            },
-          },
-        },
+        include: MESSAGE_INCLUDE,
         orderBy: { createdAt: "desc" },
         ...paginateArgs(pagination),
       }),
@@ -193,10 +210,15 @@ export class ChatService {
     content: string,
     userId: string,
     companyId: string,
+    opts?: {
+      attachments?: ChatAttachmentInput[];
+      mentionedUserIds?: string[];
+    },
   ) {
     // Verify channel exists
     const channel = await this.prisma.chatChannel.findUnique({
       where: { id: channelId },
+      select: { id: true, companyId: true, name: true, type: true },
     });
 
     if (!channel || channel.companyId !== companyId) {
@@ -212,16 +234,78 @@ export class ChatService {
       throw new ForbiddenException("You are not a member of this channel");
     }
 
+    const text = content?.trim() ?? "";
+    const attachments = opts?.attachments ?? [];
+    if (!text && attachments.length === 0) {
+      throw new BadRequestException("A message needs text or an attachment");
+    }
+
+    // Only allow mentioning actual channel members (and never the sender).
+    const requestedMentions = [
+      ...new Set(opts?.mentionedUserIds ?? []),
+    ].filter((id) => id !== userId);
+    let mentionTargets: string[] = [];
+    if (requestedMentions.length > 0) {
+      const members = await this.prisma.chatChannelMember.findMany({
+        where: { channelId, userId: { in: requestedMentions } },
+        select: { userId: true },
+      });
+      mentionTargets = members.map((m) => m.userId);
+    }
+
     const message = await this.prisma.chatMessage.create({
       data: {
-        content,
+        content: text,
         channelId,
         senderId: userId,
+        ...(attachments.length
+          ? {
+              attachments: {
+                create: attachments.map((a) => ({
+                  fileName: a.fileName,
+                  fileUrl: a.fileUrl,
+                  mimeType: a.mimeType,
+                  fileSize: a.fileSize,
+                  publicId: a.publicId,
+                })),
+              },
+            }
+          : {}),
+        ...(mentionTargets.length
+          ? {
+              mentions: {
+                create: mentionTargets.map((uid) => ({ userId: uid })),
+              },
+            }
+          : {}),
       },
-      include: {
-        sender: { select: { id: true, fullName: true, email: true } },
-      },
+      include: MESSAGE_INCLUDE,
     });
+
+    // Notify mentioned users (skip anyone who muted the channel).
+    if (mentionTargets.length > 0) {
+      const muted = await this.prisma.chatChannelMember.findMany({
+        where: { channelId, userId: { in: mentionTargets }, muted: true },
+        select: { userId: true },
+      });
+      const mutedSet = new Set(muted.map((m) => m.userId));
+      const recipients = mentionTargets.filter((id) => !mutedSet.has(id));
+      const snippet =
+        text.length > 80 ? `${text.slice(0, 80)}…` : text || "an attachment";
+      const label =
+        channel.type === ChannelType.DIRECT
+          ? "a direct message"
+          : `#${channel.name}`;
+      await Promise.all(
+        recipients.map((id) =>
+          this.notifications.notify(
+            id,
+            NotificationType.MENTIONED,
+            `${message.sender.fullName} mentioned you in ${label}: ${snippet}`,
+          ),
+        ),
+      );
+    }
 
     return message;
   }
@@ -541,5 +625,265 @@ export class ChatService {
       select: { channelId: true },
     });
     return memberships.map((m) => m.channelId);
+  }
+
+  // ──────────────────────────────────────────────
+  // Edit / delete a message
+  // ──────────────────────────────────────────────
+
+  /** Load a message + its channel, verifying company scope and membership. */
+  private async loadMessageForActor(
+    messageId: string,
+    userId: string,
+    companyId: string,
+  ) {
+    const message = await this.prisma.chatMessage.findUnique({
+      where: { id: messageId },
+      include: {
+        channel: {
+          select: { id: true, companyId: true, type: true, teamId: true },
+        },
+      },
+    });
+    if (!message || message.channel.companyId !== companyId) {
+      throw new NotFoundException("Message not found");
+    }
+    const membership = await this.prisma.chatChannelMember.findUnique({
+      where: {
+        channelId_userId: { channelId: message.channelId, userId },
+      },
+    });
+    if (!membership) {
+      throw new ForbiddenException("You are not a member of this channel");
+    }
+    return message;
+  }
+
+  /** Whether the caller can moderate (delete others') messages in a channel. */
+  private async canModerateChannel(
+    channel: { type: ChannelType; teamId: string | null },
+    userId: string,
+    role: Role,
+  ): Promise<boolean> {
+    if (role === Role.CEO) return true;
+    // Team-hub channels: the team lead / dept-head over the team may moderate.
+    if (channel.teamId) {
+      const team = await this.prisma.team.findUnique({
+        where: { id: channel.teamId },
+        select: {
+          id: true,
+          teamLeadId: true,
+          departmentId: true,
+          isShared: true,
+        },
+      });
+      if (!team) return false;
+      if (team.teamLeadId === userId) return true;
+      if (role === Role.DEPARTMENT_HEAD) {
+        const headed = await this.prisma.department.findMany({
+          where: { headId: userId },
+          select: { id: true },
+        });
+        const ids = new Set(headed.map((d) => d.id));
+        if (team.isShared) {
+          const shared = await this.prisma.teamDepartment.findMany({
+            where: { teamId: team.id },
+            select: { departmentId: true },
+          });
+          return shared.some((sd) => ids.has(sd.departmentId));
+        }
+        return !!team.departmentId && ids.has(team.departmentId);
+      }
+    }
+    return false;
+  }
+
+  async editMessage(
+    messageId: string,
+    userId: string,
+    companyId: string,
+    content: string,
+  ) {
+    const message = await this.loadMessageForActor(
+      messageId,
+      userId,
+      companyId,
+    );
+    if (message.deletedAt) {
+      throw new BadRequestException("Cannot edit a deleted message");
+    }
+    if (message.senderId !== userId) {
+      throw new ForbiddenException("You can only edit your own messages");
+    }
+    const text = content?.trim() ?? "";
+    if (!text) {
+      throw new BadRequestException("Message text cannot be empty");
+    }
+    return this.prisma.chatMessage.update({
+      where: { id: messageId },
+      data: { content: text, editedAt: new Date() },
+      include: MESSAGE_INCLUDE,
+    });
+  }
+
+  async deleteMessage(
+    messageId: string,
+    userId: string,
+    role: Role,
+    companyId: string,
+  ) {
+    const message = await this.loadMessageForActor(
+      messageId,
+      userId,
+      companyId,
+    );
+    const isAuthor = message.senderId === userId;
+    if (
+      !isAuthor &&
+      !(await this.canModerateChannel(message.channel, userId, role))
+    ) {
+      throw new ForbiddenException(
+        "Only the author or a channel manager can delete this message",
+      );
+    }
+    // Soft-delete: clear content + attachments, keep the row for continuity.
+    await this.prisma.chatMessageAttachment.deleteMany({
+      where: { messageId },
+    });
+    return this.prisma.chatMessage.update({
+      where: { id: messageId },
+      data: { content: "", deletedAt: new Date() },
+      include: MESSAGE_INCLUDE,
+    });
+  }
+
+  // ──────────────────────────────────────────────
+  // Reactions
+  // ──────────────────────────────────────────────
+
+  /** Toggle a reaction (emoji) on a message for the caller. Returns the
+   *  message with refreshed reactions + which way it toggled. */
+  async toggleReaction(
+    messageId: string,
+    userId: string,
+    companyId: string,
+    emoji: string,
+  ) {
+    const trimmed = emoji?.trim();
+    if (!trimmed || trimmed.length > 16) {
+      throw new BadRequestException("Invalid emoji");
+    }
+    const message = await this.loadMessageForActor(
+      messageId,
+      userId,
+      companyId,
+    );
+    if (message.deletedAt) {
+      throw new BadRequestException("Cannot react to a deleted message");
+    }
+    const existing = await this.prisma.chatReaction.findUnique({
+      where: {
+        messageId_userId_emoji: { messageId, userId, emoji: trimmed },
+      },
+    });
+    if (existing) {
+      await this.prisma.chatReaction.delete({ where: { id: existing.id } });
+    } else {
+      await this.prisma.chatReaction.create({
+        data: { messageId, userId, emoji: trimmed },
+      });
+    }
+    const updated = await this.prisma.chatMessage.findUnique({
+      where: { id: messageId },
+      include: MESSAGE_INCLUDE,
+    });
+    return { message: updated, channelId: message.channelId };
+  }
+
+  // ──────────────────────────────────────────────
+  // Mute a channel
+  // ──────────────────────────────────────────────
+
+  async setChannelMute(
+    channelId: string,
+    userId: string,
+    companyId: string,
+    muted: boolean,
+  ) {
+    const channel = await this.prisma.chatChannel.findUnique({
+      where: { id: channelId },
+      select: { id: true, companyId: true },
+    });
+    if (!channel || channel.companyId !== companyId) {
+      throw new NotFoundException("Channel not found");
+    }
+    const member = await this.prisma.chatChannelMember.findUnique({
+      where: { channelId_userId: { channelId, userId } },
+    });
+    if (!member) {
+      throw new ForbiddenException("You are not a member of this channel");
+    }
+    await this.prisma.chatChannelMember.update({
+      where: { channelId_userId: { channelId, userId } },
+      data: { muted },
+    });
+    return { channelId, muted };
+  }
+
+  // ──────────────────────────────────────────────
+  // Mentionable users (channel members, minus the caller)
+  // ──────────────────────────────────────────────
+
+  async getMentionableUsers(
+    channelId: string,
+    userId: string,
+    companyId: string,
+  ) {
+    const channel = await this.prisma.chatChannel.findUnique({
+      where: { id: channelId },
+      select: { id: true, companyId: true },
+    });
+    if (!channel || channel.companyId !== companyId) {
+      throw new NotFoundException("Channel not found");
+    }
+    const membership = await this.prisma.chatChannelMember.findUnique({
+      where: { channelId_userId: { channelId, userId } },
+    });
+    if (!membership) {
+      throw new ForbiddenException("You are not a member of this channel");
+    }
+    const members = await this.prisma.chatChannelMember.findMany({
+      where: { channelId, userId: { not: userId } },
+      select: {
+        user: { select: { id: true, fullName: true, email: true, role: true } },
+      },
+      orderBy: { user: { fullName: "asc" } },
+    });
+    return members.map((m) => m.user);
+  }
+
+  // ──────────────────────────────────────────────
+  // Aggregate unread (for the header badge)
+  // ──────────────────────────────────────────────
+
+  async getTotalUnread(userId: string, companyId: string) {
+    const memberships = await this.prisma.chatChannelMember.findMany({
+      where: { userId, muted: false, channel: { companyId } },
+      select: { channelId: true, lastReadAt: true },
+    });
+    const counts = await Promise.all(
+      memberships.map((m) =>
+        this.prisma.chatMessage.count({
+          where: {
+            channelId: m.channelId,
+            senderId: { not: userId },
+            deletedAt: null,
+            ...(m.lastReadAt ? { createdAt: { gt: m.lastReadAt } } : {}),
+          },
+        }),
+      ),
+    );
+    const total = counts.reduce((a, b) => a + b, 0);
+    return { unreadCount: total };
   }
 }

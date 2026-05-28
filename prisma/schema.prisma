@@ -60,6 +60,8 @@ model User {
   createdProjects    Project[]          @relation("ProjectCreator")
   chatMemberships    ChatChannelMember[]
   chatMessages       ChatMessage[]
+  chatReactions      ChatReaction[]
+  chatMentions       ChatMention[]
   documents          Document[]         @relation("DocumentUploader")
   taskWatchers       TaskWatcher[]
   taskAttachments    TaskAttachment[]   @relation("TaskAttachmentUploader")
@@ -541,6 +543,8 @@ model ChatChannelMember {
   joinedAt   DateTime  @default(now())
   // Last time the user opened/read this channel; used to compute unread counts.
   lastReadAt DateTime?
+  // Muted channels still receive messages but suppress unread bumps + pings.
+  muted      Boolean   @default(false)
 
   channel ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
   user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -552,6 +556,10 @@ model ChatMessage {
   id        String   @id @default(uuid())
   content   String
   createdAt DateTime @default(now())
+  // Set when the author edits the message text.
+  editedAt  DateTime?
+  // Soft-delete: kept for thread continuity, rendered as a placeholder.
+  deletedAt DateTime?
 
   channelId String
   channel   ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
@@ -559,9 +567,53 @@ model ChatMessage {
   senderId String
   sender   User   @relation(fields: [senderId], references: [id], onDelete: Cascade)
 
-  documents DocumentShare[]
+  documents   DocumentShare[]
+  reactions   ChatReaction[]
+  attachments ChatMessageAttachment[]
+  mentions    ChatMention[]
 
   @@index([channelId])
+}
+
+model ChatReaction {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+}
+
+model ChatMessageAttachment {
+  id        String   @id @default(uuid())
+  messageId String
+  fileName  String
+  fileUrl   String
+  mimeType  String?
+  fileSize  Int?
+  publicId  String? // provider id (e.g. Cloudinary) for future deletion
+  createdAt DateTime @default(now())
+
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
+model ChatMention {
+  id        String @id @default(uuid())
+  messageId String
+  userId    String
+
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId])
 }
 
 // ──────────────────────────────────────────────

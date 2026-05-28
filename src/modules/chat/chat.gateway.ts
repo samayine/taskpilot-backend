@@ -153,6 +153,24 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
+   * Client signals typing in a channel. Relayed to other members only
+   * (ephemeral — never persisted).
+   */
+  @SubscribeMessage("typing")
+  handleTyping(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { channelId: string; isTyping: boolean },
+  ) {
+    if (!data?.channelId) return;
+    // Name is resolved client-side from the channel member list.
+    client.to(`channel:${data.channelId}`).emit("typing", {
+      channelId: data.channelId,
+      userId: client.data.userId,
+      isTyping: !!data.isTyping,
+    });
+  }
+
+  /**
    * Server-side: notify a user that a new channel was opened with them (e.g.
    * a freshly-created DM). The user joins the new channel's room so they
    * receive subsequent newMessage events without reconnecting.
@@ -165,9 +183,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * Utility: broadcast a message to a channel room (called from service).
+   * Utility: broadcast a payload to a channel room (called from controller for
+   * REST-originated events: newMessage, messageEdited, messageDeleted,
+   * reactionChanged).
    */
-  broadcastToChannel(channelId: string, event: string, data: any) {
+  broadcastToChannel(channelId: string, event: string, data: unknown) {
     this.server.to(`channel:${channelId}`).emit(event, data);
   }
 
