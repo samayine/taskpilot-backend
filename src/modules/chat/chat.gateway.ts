@@ -145,10 +145,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Broadcast to all members in the channel room
       this.server.to(`channel:${data.channelId}`).emit("newMessage", message);
 
-      return { event: "messageSent", data: message };
+      // Plain return → Socket.IO ack. (A `{event, data}` shape would be
+      // interpreted as a WsResponse and emitted as a separate event,
+      // which silently breaks the client's ack callback.)
+      return { ok: true, id: message.id };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : "Send failed";
-      return { event: "error", data: { message: msg } };
+      return { ok: false, error: msg };
     }
   }
 
