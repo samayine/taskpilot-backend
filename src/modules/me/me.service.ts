@@ -349,12 +349,14 @@ export class MeService {
         (sum, r) => sum + (Number((r._count as any)?._all ?? r._count)),
         0,
       );
-      const review =
-        rows.find((r) => r.status === TaskStatus.REVIEW)?._count ?? 0;
+      const reviewRow = rows.find((r) => r.status === TaskStatus.REVIEW);
+      const review = reviewRow
+        ? Number((reviewRow._count as any)?._all ?? reviewRow._count)
+        : 0;
       return {
         team: t,
         openCount: open,
-        reviewCount: review as unknown as number,
+        reviewCount: review,
       };
     });
 
