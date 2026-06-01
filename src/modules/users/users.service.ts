@@ -186,7 +186,13 @@ export class UsersService {
   async findAllByCompany(
     companyId: string,
     pagination: PaginationDto,
-    filters: { role?: Role; isBlocked?: boolean; search?: string },
+    filters: {
+      role?: Role;
+      isBlocked?: boolean;
+      search?: string;
+      joinedFrom?: string;
+      joinedTo?: string;
+    },
   ) {
     const where: Prisma.UserWhereInput = { companyId };
 
@@ -203,6 +209,18 @@ export class UsersService {
         { fullName: { contains: filters.search, mode: "insensitive" } },
         { email: { contains: filters.search, mode: "insensitive" } },
       ];
+    }
+
+    if (filters.joinedFrom || filters.joinedTo) {
+      const createdAt: Prisma.DateTimeFilter = {};
+      if (filters.joinedFrom) createdAt.gte = new Date(filters.joinedFrom);
+      if (filters.joinedTo) {
+        // Treat joinedTo as inclusive end-of-day.
+        const end = new Date(filters.joinedTo);
+        end.setHours(23, 59, 59, 999);
+        createdAt.lte = end;
+      }
+      where.createdAt = createdAt;
     }
 
     const [users, total] = await Promise.all([

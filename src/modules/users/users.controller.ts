@@ -20,7 +20,7 @@ import { Roles } from "src/common/decorators/roles.decorator";
 import { PaginationDto } from "src/common/dto/pagination.dto";
 import { UpdateProfileDto } from "./dto/update-profile.dto";
 import { Role } from "@prisma/client";
-import { IsEnum, IsOptional, IsString, MaxLength } from "class-validator";
+import { IsDateString, IsEnum, IsOptional, IsString, MaxLength } from "class-validator";
 import { ApiPropertyOptional } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
 
@@ -41,6 +41,16 @@ class UserFilterDto extends PaginationDto {
   @IsString()
   @MaxLength(100)
   search?: string;
+
+  @ApiPropertyOptional({ description: "Joined on or after this date (ISO 8601)" })
+  @IsOptional()
+  @IsDateString()
+  joinedFrom?: string;
+
+  @ApiPropertyOptional({ description: "Joined on or before this date (ISO 8601)" })
+  @IsOptional()
+  @IsDateString()
+  joinedTo?: string;
 }
 
 // ── Inline admin-update DTO ───────────────────────────────────────────────────
@@ -119,11 +129,14 @@ export class UsersController {
   @Roles(Role.CEO, Role.ASSISTANT)
   @Get()
   findAll(@Query() query: UserFilterDto, @Request() req) {
-    const { role, isBlocked, search, ...pagination } = query;
+    const { role, isBlocked, search, joinedFrom, joinedTo, ...pagination } =
+      query;
     return this.usersService.findAllByCompany(req.user.companyId, pagination, {
       role,
       isBlocked,
       search,
+      joinedFrom,
+      joinedTo,
     });
   }
 
