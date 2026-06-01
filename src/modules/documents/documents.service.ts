@@ -61,18 +61,29 @@ export class DocumentsService {
     userId: string,
     role: Role,
     pagination: PaginationDto,
+    filters: {
+      visibility?: DocumentVisibility;
+      mine?: boolean;
+      search?: string;
+    } = {},
   ) {
-    // CEO sees everything
+    const extra: Prisma.DocumentWhereInput[] = [];
+    if (filters.visibility) extra.push({ visibility: filters.visibility });
+    if (filters.mine) extra.push({ uploaderId: userId });
+    if (filters.search?.trim()) {
+      extra.push({
+        fileName: { contains: filters.search.trim(), mode: "insensitive" },
+      });
+    }
+
+    // CEO sees everything (subject to optional filters above).
     if (role === Role.CEO) {
-      return this.findDocuments({ companyId }, pagination);
+      const where: Prisma.DocumentWhereInput = { companyId };
+      if (extra.length > 0) where.AND = extra;
+      return this.findDocuments(where, pagination);
     }
 
     // For other roles, build visibility-aware query
-    // They can see:
-    // 1. Documents with visibility ALL
-    // 2. Documents they uploaded
-    // 3. Documents where they have an explicit access rule
-    // 4. DEPARTMENT_ONLY docs if they're in that department
     const userTeams = await this.prisma.teamMember.findMany({
       where: { userId },
       select: { teamId: true, team: { select: { departmentId: true } } },
@@ -83,7 +94,6 @@ export class DocumentsService {
       .map((tm) => tm.team.departmentId)
       .filter((id): id is string => id !== null);
 
-    // Also check if user heads any departments
     const headedDepts = await this.prisma.department.findMany({
       where: { headId: userId, companyId },
       select: { id: true },
@@ -91,42 +101,35 @@ export class DocumentsService {
     const headedDeptIds = headedDepts.map((d) => d.id);
     const allDeptIds = [...new Set([...departmentIds, ...headedDeptIds])];
 
+    const accessOr: Prisma.DocumentWhereInput[] = [
+      { teamId: null, visibility: DocumentVisibility.ALL },
+      { uploaderId: userId },
+      { teamId: { in: teamIds } },
+      {
+        visibility: DocumentVisibility.SPECIFIC,
+        accessRules: {
+          some: {
+            OR: [
+              { userId },
+              { teamId: { in: teamIds } },
+              { departmentId: { in: allDeptIds } },
+            ],
+          },
+        },
+      },
+      {
+        visibility: DocumentVisibility.DEPARTMENT_ONLY,
+        uploader: {
+          teamMembers: {
+            some: { team: { departmentId: { in: allDeptIds } } },
+          },
+        },
+      },
+    ];
+
     const where: Prisma.DocumentWhereInput = {
       companyId,
-      OR: [
-        // Documents visible to all (company-wide docs only)
-        { teamId: null, visibility: DocumentVisibility.ALL },
-        // Documents uploaded by this user
-        { uploaderId: userId },
-        // Team-scoped docs where the user is a team member
-        { teamId: { in: teamIds } },
-        // Documents with SPECIFIC visibility where user has access
-        {
-          visibility: DocumentVisibility.SPECIFIC,
-          accessRules: {
-            some: {
-              OR: [
-                { userId },
-                { teamId: { in: teamIds } },
-                { departmentId: { in: allDeptIds } },
-              ],
-            },
-          },
-        },
-        // DEPARTMENT_ONLY docs where user is in that department
-        {
-          visibility: DocumentVisibility.DEPARTMENT_ONLY,
-          uploader: {
-            teamMembers: {
-              some: {
-                team: {
-                  departmentId: { in: allDeptIds },
-                },
-              },
-            },
-          },
-        },
-      ],
+      AND: [{ OR: accessOr }, ...extra],
     };
 
     return this.findDocuments(where, pagination);

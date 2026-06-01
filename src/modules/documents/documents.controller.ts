@@ -14,7 +14,7 @@ import { DocumentsService } from "./documents.service";
 import { UploadDocumentDto } from "./dto/upload-document.dto";
 import { UpdateVisibilityDto } from "./dto/update-visibility.dto";
 import { GrantAccessDto } from "./dto/grant-access.dto";
-import { PaginationDto } from "src/common/dto/pagination.dto";
+import { ListDocumentsDto } from "./dto/list-documents.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { RolesGuard } from "src/common/guards/roles.guard";
 import { Roles } from "src/common/decorators/roles.decorator";
@@ -43,12 +43,14 @@ export class DocumentsController {
   @ApiOperation({ summary: "List documents the user can access (visibility-filtered)." })
   @Roles(Role.CEO, Role.DEPARTMENT_HEAD, Role.TEAM_LEAD, Role.EMPLOYEE, Role.ASSISTANT)
   @Get()
-  findAll(@Query() pagination: PaginationDto, @Request() req) {
+  findAll(@Query() query: ListDocumentsDto, @Request() req) {
+    const { visibility, mine, search, ...pagination } = query;
     return this.documentsService.findAll(
       req.user.companyId,
       req.user.userId,
       req.user.role,
       pagination,
+      { visibility, mine, search },
     );
   }
 
