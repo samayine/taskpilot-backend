@@ -24,6 +24,7 @@ model Company {
   chatChannels ChatChannel[]
   documents    Document[]
   labels       Label[]
+  meetings     Meeting[]
 }
 
 model User {
@@ -67,6 +68,9 @@ model User {
   taskAttachments    TaskAttachment[]   @relation("TaskAttachmentUploader")
   commentMentions    CommentMention[]
   teamAnnouncements  TeamAnnouncement[] @relation("TeamAnnouncementAuthor")
+  hostedMeetings     Meeting[]          @relation("MeetingHost")
+  createdMeetings    Meeting[]          @relation("MeetingCreator")
+  meetingInvites     MeetingParticipant[]
 
   @@index([companyId])
 }
@@ -101,6 +105,7 @@ model Department {
   projectDepartments ProjectDepartment[]
   sharedTeams        TeamDepartment[]
   taggedTasks        Task[]               @relation("TaskTaggedDept")
+  meetings           Meeting[]
 
   @@unique([companyId, name]) // No duplicate department names within a company
   @@index([companyId])
@@ -135,6 +140,7 @@ model Team {
   announcements     TeamAnnouncement[]
   documents         Document[]
   chatChannels      ChatChannel[]
+  meetings          Meeting[]
 
   @@index([companyId])
   @@index([teamLeadId])
@@ -457,6 +463,9 @@ enum NotificationType {
   TASK_APPROVED
   TASK_REJECTED
   MENTIONED
+  MEETING_INVITED
+  MEETING_UPDATED
+  MEETING_CANCELLED
 }
 
 model Notification {
@@ -683,4 +692,85 @@ model DocumentShare {
   document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@index([messageId])
+}
+
+// ──────────────────────────────────────────────
+// Meetings — a lightweight alignment hub. We don't host calls; we capture
+// title, agenda, link, host, participants, schedule, and RSVPs.
+// ──────────────────────────────────────────────
+
+enum MeetingScope {
+  COMPANY     // CEO-only: every user in the company
+  ROLE        // CEO-only: a specific role group (e.g. all DEPARTMENT_HEADs)
+  DEPARTMENT  // CEO or that department's head
+  TEAM        // CEO, that team's dept head, or the team lead
+}
+
+enum MeetingStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum MeetingRsvp {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+model Meeting {
+  id        String @id @default(uuid())
+  title     String
+  agenda    String? // short markdown / plain text agenda
+  link      String? // external meeting URL (Zoom/Meet/Teams/etc.)
+  location  String? // optional physical or virtual room label
+
+  startsAt  DateTime
+  endsAt    DateTime?
+
+  status    MeetingStatus @default(SCHEDULED)
+  scope     MeetingScope
+
+  // One of these is set depending on `scope`. Kept nullable so creators can
+  // pick the right axis without N redundant fields per audience.
+  targetRole         Role?
+  targetDepartmentId String?
+  targetDepartment   Department? @relation(fields: [targetDepartmentId], references: [id], onDelete: SetNull)
+  targetTeamId       String?
+  targetTeam         Team?       @relation(fields: [targetTeamId], references: [id], onDelete: SetNull)
+
+  hostId    String
+  host      User @relation("MeetingHost", fields: [hostId], references: [id], onDelete: Restrict)
+
+  createdById String
+  createdBy   User @relation("MeetingCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  participants MeetingParticipant[]
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  cancelledAt  DateTime?
+  cancelReason String?
+
+  @@index([companyId])
+  @@index([startsAt])
+  @@index([targetDepartmentId])
+  @@index([targetTeamId])
+}
+
+model MeetingParticipant {
+  id          String      @id @default(uuid())
+  meetingId   String
+  meeting     Meeting     @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rsvp        MeetingRsvp @default(PENDING)
+  respondedAt DateTime?
+  createdAt   DateTime    @default(now())
+
+  @@unique([meetingId, userId])
+  @@index([userId])
 }

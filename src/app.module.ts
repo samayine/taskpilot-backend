@@ -21,6 +21,7 @@ import { DocumentsModule } from "./modules/documents/documents.module";
 import { TeamAnnouncementsModule } from "./modules/team-announcements/team-announcements.module";
 import { MeModule } from "./modules/me/me.module";
 import { MailModule } from "./modules/mail/mail.module";
+import { MeetingsModule } from "./modules/meetings/meetings.module";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { APP_GUARD } from "@nestjs/core";
 
@@ -56,6 +57,7 @@ import { APP_GUARD } from "@nestjs/core";
     DocumentsModule,
     TeamAnnouncementsModule,
     MeModule,
+    MeetingsModule,
   ],
   controllers: [AppController],
   providers: [
