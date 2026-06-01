@@ -238,10 +238,10 @@ export class MeService {
         })
       : [];
     const openMap = new Map(
-      counts.map((c) => [c.assigneeId, c._count as unknown as number]),
+      counts.map((c) => [c.assigneeId, Number((c._count as any)?._all ?? c._count)]),
     );
     const overdueMap = new Map(
-      overdueCounts.map((c) => [c.assigneeId, c._count as unknown as number]),
+      overdueCounts.map((c) => [c.assigneeId, Number((c._count as any)?._all ?? c._count)]),
     );
 
     // Dedup members across teams.
@@ -346,7 +346,7 @@ export class MeService {
     const teamSummaries = teams.map((t) => {
       const rows = summaryGroups.filter((g) => g.teamId === t.id);
       const open = rows.reduce(
-        (sum, r) => sum + (r._count as unknown as number),
+        (sum, r) => sum + (Number((r._count as any)?._all ?? r._count)),
         0,
       );
       const review =
@@ -477,7 +477,7 @@ export class MeService {
     ]);
 
     const byRole = Object.fromEntries(
-      userCounts.map((c) => [c.role, c._count as unknown as number]),
+      userCounts.map((c) => [c.role, Number((c._count as any)?._all ?? c._count)]),
     ) as Record<string, number>;
 
     return {
@@ -486,7 +486,7 @@ export class MeService {
       blockedUsers,
       counts: {
         total: userCounts.reduce(
-          (sum, c) => sum + (c._count as unknown as number),
+          (sum, c) => sum + (Number((c._count as any)?._all ?? c._count)),
           0,
         ),
         byRole,
@@ -586,7 +586,7 @@ export class MeService {
       _count: true,
     });
     return Object.fromEntries(
-      rows.map((r) => [r.status, r._count as unknown as number]),
+      rows.map((r) => [r.status, Number((r._count as any)?._all ?? r._count)]),
     );
   }
 
@@ -599,7 +599,7 @@ export class MeService {
       _count: true,
     });
     return Object.fromEntries(
-      rows.map((r) => [r.priority, r._count as unknown as number]),
+      rows.map((r) => [r.priority, Number((r._count as any)?._all ?? r._count)]),
     );
   }
 
@@ -749,10 +749,10 @@ export class MeService {
         ])
       : [[], []];
     const openMap = new Map(
-      openCounts.map((c) => [c.assigneeId, c._count as unknown as number]),
+      openCounts.map((c) => [c.assigneeId, Number((c._count as any)?._all ?? c._count)]),
     );
     const overdueMap = new Map(
-      overdueCounts.map((c) => [c.assigneeId, c._count as unknown as number]),
+      overdueCounts.map((c) => [c.assigneeId, Number((c._count as any)?._all ?? c._count)]),
     );
     const seen = new Set<string>();
     const byMember = members
@@ -895,10 +895,10 @@ export class MeService {
     ]);
 
     const openByTeam = new Map(
-      perTeam.map((r) => [r.teamId, r._count as unknown as number]),
+      perTeam.map((r) => [r.teamId, Number((r._count as any)?._all ?? r._count)]),
     );
     const weekByTeam = new Map(
-      perTeamWeek.map((r) => [r.teamId, r._count as unknown as number]),
+      perTeamWeek.map((r) => [r.teamId, Number((r._count as any)?._all ?? r._count)]),
     );
     const teams = depts.flatMap((d) => d.teams);
     const byTeam = teams
@@ -947,7 +947,7 @@ export class MeService {
     ]);
 
     const byRole = Object.fromEntries(
-      byRoleRows.map((r) => [r.role, r._count as unknown as number]),
+      byRoleRows.map((r) => [r.role, Number((r._count as any)?._all ?? r._count)]),
     ) as Record<string, number>;
 
     const signupTrend = this.bucketByDay(
