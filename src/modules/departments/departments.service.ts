@@ -421,12 +421,19 @@ export class DepartmentsService {
       throw new NotFoundException("Department not found");
     }
 
-    // Hybrid delete — block when meaningful dependents exist. Project links
-    // (ProjectDepartment) and shared-team links (TeamDepartment) are cleaned up
-    // by schema-level cascades.
-    const [teamCount, memberCount] = await Promise.all([
+    // Hybrid delete — block when meaningful dependents exist. The dept's own
+    // head doesn't count: User.departmentId has onDelete: SetNull, and the
+    // 2-way head sync means the head is always also a User in this dept.
+    // Project links (ProjectDepartment) and shared-team links
+    // (TeamDepartment) are cleaned up by schema-level cascades.
+    const [teamCount, otherMemberCount] = await Promise.all([
       this.prisma.team.count({ where: { departmentId } }),
-      this.prisma.user.count({ where: { departmentId } }),
+      this.prisma.user.count({
+        where: {
+          departmentId,
+          ...(department.headId ? { id: { not: department.headId } } : {}),
+        },
+      }),
     ]);
 
     if (teamCount > 0) {
@@ -434,10 +441,19 @@ export class DepartmentsService {
         "This department still has teams. Move or delete its teams before deleting it.",
       );
     }
-    if (memberCount > 0) {
+    if (otherMemberCount > 0) {
       throw new BadRequestException(
-        "This department still has members. Reassign its users before deleting it.",
+        "This department still has members beyond its head. Reassign its users before deleting it.",
       );
+    }
+
+    // Clear the head's department link up front so the activity log sees a
+    // clean state (the cascade would do it too, but this is explicit).
+    if (department.headId) {
+      await this.prisma.user.update({
+        where: { id: department.headId },
+        data: { departmentId: null },
+      });
     }
 
     await this.prisma.department.delete({ where: { id: departmentId } });
