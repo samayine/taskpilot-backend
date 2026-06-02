@@ -315,8 +315,14 @@ export class TasksService {
   // ──────────────────────────────────────────────
 
   async findMyTasks(userId: string, filters: TaskFilterDto) {
+    // Employees see their own tasks plus every task on a team they're a
+    // member of — so they can follow dependencies, comment, and watch.
+    // Mutations (status updates) stay locked to the assignee.
     const where: Prisma.TaskWhereInput = {
-      assigneeId: userId,
+      OR: [
+        { assigneeId: userId },
+        { team: { members: { some: { userId } } } },
+      ],
       ...this.buildTaskFilters(filters),
     };
 
@@ -1107,9 +1113,18 @@ export class TasksService {
       throw new NotFoundException("Task not found");
     }
 
-    // Employees can only view tasks assigned to them
+    // Employees can view their own tasks plus any task on a team they're a
+    // member of. Status mutations remain assignee-only — this only widens
+    // read access for dependency awareness, comments, and watching.
     if (role === Role.EMPLOYEE && task.assigneeId !== userId) {
-      throw new ForbiddenException("You can only view tasks assigned to you");
+      const member = await this.prisma.teamMember.findUnique({
+        where: { userId_teamId: { userId, teamId: task.teamId } },
+      });
+      if (!member) {
+        throw new ForbiddenException(
+          "You can only view tasks assigned to you or in a team you're on",
+        );
+      }
     }
 
     // Team leads can only view tasks in their team
