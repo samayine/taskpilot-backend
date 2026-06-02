@@ -170,10 +170,18 @@ export class DepartmentsService {
   ) {
     const department = await this.prisma.department.findUnique({
       where: { id: departmentId },
+      include: {
+        head: { select: { id: true, fullName: true, email: true } },
+      },
     });
 
     if (!department || department.companyId !== companyId) {
       throw new NotFoundException("Department not found");
+    }
+
+    // Already the head — nothing to do.
+    if (department.headId === dto.userId) {
+      return this.findOne(departmentId, companyId, callerId, Role.CEO);
     }
 
     const user = await this.prisma.user.findUnique({
@@ -188,6 +196,36 @@ export class DepartmentsService {
       throw new BadRequestException(
         "User must have the DEPARTMENT_HEAD role to be assigned as department head",
       );
+    }
+
+    // Existing-head guard.
+    if (department.head && !dto.confirmOverwrite) {
+      throw new ConflictException({
+        message: `${department.name} already has a head: ${department.head.fullName}. Re-submit with confirmOverwrite=true to replace them.`,
+        code: "DEPARTMENT_HAS_HEAD",
+        currentHead: department.head,
+        departmentName: department.name,
+      });
+    }
+
+    // Single-head-per-user guard. If the chosen user already heads another
+    // department, require the same confirmation flag — then move them.
+    const otherDept = await this.prisma.department.findFirst({
+      where: { headId: dto.userId, id: { not: departmentId }, companyId },
+      select: { id: true, name: true },
+    });
+    if (otherDept && !dto.confirmOverwrite) {
+      throw new ConflictException({
+        message: `${user.fullName} already heads ${otherDept.name}. Re-submit with confirmOverwrite=true to move them.`,
+        code: "USER_ALREADY_HEADS_DEPARTMENT",
+        currentDepartment: otherDept,
+      });
+    }
+    if (otherDept) {
+      await this.prisma.department.update({
+        where: { id: otherDept.id },
+        data: { headId: null },
+      });
     }
 
     const updated = await this.prisma.department.update({

@@ -1,5 +1,5 @@
-import { ApiProperty } from "@nestjs/swagger";
-import { IsNotEmpty, IsUUID } from "class-validator";
+import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { IsBoolean, IsNotEmpty, IsOptional, IsUUID } from "class-validator";
 
 export class AssignHeadDto {
   @ApiProperty({
@@ -9,4 +9,12 @@ export class AssignHeadDto {
   @IsUUID()
   @IsNotEmpty()
   userId: string;
+
+  @ApiPropertyOptional({
+    description:
+      "Replace the current head if this department already has one, or reassign the chosen user from a department they already head. Without this flag the API responds 409.",
+  })
+  @IsBoolean()
+  @IsOptional()
+  confirmOverwrite?: boolean;
 }

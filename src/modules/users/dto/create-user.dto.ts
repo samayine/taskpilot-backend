@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { Role } from "@prisma/client";
 import {
+  IsBoolean,
   IsEmail,
   IsIn,
   IsNotEmpty,
@@ -49,4 +50,12 @@ export class CreateUserDto {
   @IsUUID()
   @IsOptional()
   departmentId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      "When creating a DEPARTMENT_HEAD into a department that already has a head, replace the existing head. Without this flag the API responds 409.",
+  })
+  @IsBoolean()
+  @IsOptional()
+  forceOverwriteHead?: boolean;
 }

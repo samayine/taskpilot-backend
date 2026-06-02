@@ -41,9 +41,12 @@ export class DepartmentsController {
     );
   }
 
-  /** CEO sees all departments; DEPARTMENT_HEAD sees only their own. */
-  @ApiOperation({ summary: "CEO sees all departments; DEPARTMENT_HEAD sees only their own." })
-  @Roles(Role.CEO, Role.DEPARTMENT_HEAD)
+  /** CEO + ASSISTANT see all departments; DEPARTMENT_HEAD sees only their own. */
+  @ApiOperation({
+    summary:
+      "CEO + ASSISTANT see all departments; DEPARTMENT_HEAD sees only their own.",
+  })
+  @Roles(Role.CEO, Role.ASSISTANT, Role.DEPARTMENT_HEAD)
   @Get()
   findAll(@Query() pagination: PaginationDto, @Request() req) {
     return this.departmentsService.findAll(
@@ -54,9 +57,12 @@ export class DepartmentsController {
     );
   }
 
-  /** CEO or DEPARTMENT_HEAD views a single department with teams. */
-  @ApiOperation({ summary: "CEO or DEPARTMENT_HEAD views a single department with teams." })
-  @Roles(Role.CEO, Role.DEPARTMENT_HEAD)
+  /** CEO + ASSISTANT or DEPARTMENT_HEAD views a single department with teams. */
+  @ApiOperation({
+    summary:
+      "CEO + ASSISTANT or DEPARTMENT_HEAD views a single department with teams.",
+  })
+  @Roles(Role.CEO, Role.ASSISTANT, Role.DEPARTMENT_HEAD)
   @Get(":id")
   findOne(@Param("id") id: string, @Request() req) {
     return this.departmentsService.findOne(

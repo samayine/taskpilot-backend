@@ -116,12 +116,30 @@ export class UsersService {
 
     const department = await this.prismaService.department.findUnique({
       where: { id: createUserDto.departmentId },
+      include: {
+        head: { select: { id: true, fullName: true, email: true } },
+      },
     });
 
     if (!department || department.companyId !== companyId) {
       throw new NotFoundException(
         "Department not found or does not belong to your company",
       );
+    }
+
+    // Department heads are 1:1 with a department. If the dept already has a
+    // head, require explicit confirmation before replacing them.
+    if (
+      createUserDto.role === Role.DEPARTMENT_HEAD &&
+      department.head &&
+      !createUserDto.forceOverwriteHead
+    ) {
+      throw new ConflictException({
+        message: `${department.name} already has a head: ${department.head.fullName}. Re-submit with forceOverwriteHead=true to replace them.`,
+        code: "DEPARTMENT_HAS_HEAD",
+        currentHead: department.head,
+        departmentName: department.name,
+      });
     }
 
     const existingEmail = await this.prismaService.user.findUnique({
@@ -142,7 +160,12 @@ export class UsersService {
 
     const hashedPassword = await bcrypt.hash(rawPassword, 10);
 
-    const { departmentId, password: _pw, ...userData } = createUserDto;
+    const {
+      departmentId,
+      password: _pw,
+      forceOverwriteHead: _force,
+      ...userData
+    } = createUserDto;
 
     const user = await this.prismaService.user.create({
       data: {
@@ -156,6 +179,16 @@ export class UsersService {
         department: { select: { id: true, name: true } },
       },
     });
+
+    // 2-way sync: when minting a DEPARTMENT_HEAD into a department, set that
+    // department's head to the new user. The pre-check above guarantees the
+    // dept is either empty or the caller opted into overwrite.
+    if (user.role === Role.DEPARTMENT_HEAD && departmentId) {
+      await this.prismaService.department.update({
+        where: { id: departmentId },
+        data: { headId: user.id },
+      });
+    }
 
     const { password, ...safeUser } = user;
 
