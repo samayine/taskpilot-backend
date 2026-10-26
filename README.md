@@ -102,6 +102,7 @@ prisma/
 - **Releases** — Tagged on GitHub. See the [Releases page](https://github.com/samayine/taskpilot-backend/releases) for changelogs.
 - **Container image** — Published to GitHub Container Registry as `ghcr.io/samayine/taskpilot-backend`. Pin to a tag in production; avoid `latest`.
 - **Deployment** — Any Node 22 host (Render, Railway, Fly.io, Docker on VPS). Required environment matches `.env.example`. Run `prisma migrate deploy` as part of every release.
+- **Frontend App** — The live app client is deployed on Vercel at [https://task-pilot-azure.vercel.app/](https://task-pilot-azure.vercel.app/).
 - **CI/CD** — GitHub Actions runs lint, type-check, tests, and image build on each pull request.
 
 ## Community Standards
